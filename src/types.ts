@@ -41,6 +41,8 @@ export interface Submission {
   tokenCount: number | null;
   indicators: string[];
   submittedAt: string;
+  analysisStartedAt?: string | null;
+  analysisFinishedAt?: string | null;
 }
 
 export type Theme = 'dark' | 'light';

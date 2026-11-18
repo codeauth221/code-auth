@@ -1,0 +1,102 @@
+/* === CodeAuthentic faculty auth: premium input polish (Nov 18, 2026) === */
+/* Scope all overrides to the faculty auth card. The login logic is unchanged.
+   Chrome/Edge autofill paints inputs pale blue unless their autofill rendering
+   is explicitly masked, even when the parent field has a dark background. */
+.ca-auth__card {
+  color-scheme: dark;
+}
+
+.ca-auth__card .ca-auth__field label {
+  color: #e1d9d2;
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+.ca-auth__card .ca-auth__input-wrap {
+  min-height: 54px;
+  gap: .8rem;
+  padding-inline: 1rem;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #25211f 0%, #1b1918 100%);
+  border: 1px solid rgba(247, 221, 203, .16);
+  color: #b7a9a0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 4px 12px rgba(0, 0, 0, .11);
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.ca-auth__card .ca-auth__input-wrap:hover:not(:focus-within) {
+  border-color: rgba(255, 155, 92, .4);
+}
+.ca-auth__card .ca-auth__input-wrap:focus-within {
+  border-color: #ff9356;
+  background: linear-gradient(180deg, #29221e 0%, #1d1917 100%);
+  color: #ffab75;
+  box-shadow: 0 0 0 3px rgba(255, 119, 47, .13), 0 8px 20px rgba(0, 0, 0, .18);
+}
+.ca-auth__card .ca-auth__input-wrap > svg {
+  flex-shrink: 0;
+  stroke-width: 1.85;
+}
+.ca-auth__card .ca-auth__input-wrap input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0;
+  margin: 0;
+  border: 0 !important;
+  outline: 0;
+  border-radius: 0;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none;
+  color: #fff7f1;
+  caret-color: #ff9e67;
+  color-scheme: dark;
+  font-family: inherit;
+  font-size: .87rem;
+  font-weight: 500;
+  line-height: 1.35;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ca-auth__card .ca-auth__input-wrap input::placeholder {
+  color: #8e8179;
+  opacity: 1;
+}
+/* Suppress the native light blue / white autofill fill in Chrome, Edge,
+   Safari and compatible browsers without disabling password managers. */
+.ca-auth__card .ca-auth__input-wrap input:-webkit-autofill,
+.ca-auth__card .ca-auth__input-wrap input:-webkit-autofill:hover,
+.ca-auth__card .ca-auth__input-wrap input:-webkit-autofill:focus,
+.ca-auth__card .ca-auth__input-wrap input:-webkit-autofill:active,
+.ca-auth__card .ca-auth__input-wrap input:autofill {
+  -webkit-text-fill-color: #fff7f1 !important;
+  -webkit-box-shadow: 0 0 0 100px #211e1c inset !important;
+  box-shadow: 0 0 0 100px #211e1c inset !important;
+  caret-color: #ff9e67;
+  border-radius: 0;
+}
+.ca-auth__card .ca-auth__input-wrap input::selection {
+  color: #fff;
+  background: rgba(245, 104, 40, .5);
+}
+.ca-auth__card .ca-auth__password-toggle {
+  flex-basis: 34px;
+  width: 34px;
+  height: 34px;
+  color: #bcb0a7;
+  transition: color .15s ease, background .15s ease;
+}
+.ca-auth__card .ca-auth__password-toggle:hover:not(:disabled) {
+  color: #ffb17c;
+  background: rgba(255, 141, 67, .1);
+}
+.ca-auth__card .ca-auth__password-toggle:focus-visible {
+  outline: 2px solid #ffab75;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-auth__card .ca-auth__input-wrap,
+  .ca-auth__card .ca-auth__password-toggle { transition: none; }
+}

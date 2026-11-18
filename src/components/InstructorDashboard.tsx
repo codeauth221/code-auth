@@ -23,11 +23,45 @@ import {
   Sparkles,
   ArrowUpRight,
   RefreshCw,
+  LoaderCircle,
   CircleCheck,
 } from 'lucide-react';
 import { Instructor, Language, Lobby, RiskLevel, Submission, Theme } from '../types';
 import { CodeModal } from './CodeModal';
 import { formatPhilippineDateTime, formatPhilippineTime } from '../utils/dateTime';
+
+/** Duration is measured by backend status-transition timestamps (not a simulated progress percentage). */
+function durationLabel(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const remainder = String(total % 60).padStart(2, '0');
+  return minutes < 60 ? `${minutes}m ${remainder}s` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+function elapsedSince(value: string | null | undefined, nowMs: number): number | null {
+  if (!value) return null;
+  const start = Date.parse(value);
+  if (!Number.isFinite(start)) return null;
+  return Math.max(0, (nowMs - start) / 1000);
+}
+
+function analysisClock(sub: Submission, nowMs: number): string | null {
+  if (sub.status === 'pending') {
+    const seconds = elapsedSince(sub.submittedAt, nowMs);
+    return seconds === null ? 'Queued' : `Queued · ${durationLabel(seconds)}`;
+  }
+  if (sub.status === 'analyzing') {
+    const seconds = elapsedSince(sub.analysisStartedAt || sub.submittedAt, nowMs);
+    return seconds === null ? 'Analyzing' : `Analyzing · ${durationLabel(seconds)}`;
+  }
+  if (!sub.analysisStartedAt || !sub.analysisFinishedAt) return null;
+  const startMs = Date.parse(sub.analysisStartedAt);
+  const endMs = Date.parse(sub.analysisFinishedAt);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  const worked = durationLabel((endMs - startMs) / 1000);
+  return sub.status === 'done' ? `Worked for ${worked}` : `Stopped after ${worked}`;
+}
 
 type InstructorSection = 'dashboard' | 'lobbies' | 'submissions';
 
@@ -71,6 +105,15 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   );
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDatasetModal, setShowDatasetModal] = useState(false);
+  // One lightweight ticker for the entire table, only active while jobs run.
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
+  const hasRunningJobs = submissions.some((sub) => sub.status === 'pending' || sub.status === 'analyzing');
+  useEffect(() => {
+    if (!hasRunningJobs) return;
+    setClockNowMs(Date.now());
+    const ticker = window.setInterval(() => setClockNowMs(Date.now()), 1000);
+    return () => window.clearInterval(ticker);
+  }, [hasRunningJobs]);
   const [inspectedSubmission, setInspectedSubmission] = useState<Submission | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -116,6 +159,11 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   const lobbySubmissions = submissions.filter(
     (s) => s.lobbyId === (activeLobby ? activeLobby.id : '')
   );
+
+  // These are database job states, not a guessed percentage of ML progress.
+  const analyzingCount = lobbySubmissions.filter((sub) => sub.status === 'analyzing').length;
+  const queuedCount = lobbySubmissions.filter((sub) => sub.status === 'pending').length;
+  const unfinishedCount = analyzingCount + queuedCount;
 
   const displayedSubmissions = lobbySubmissions.filter((sub) => {
     const matchesSearch =
@@ -719,6 +767,40 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                   </div>
                 </div>
 
+                {unfinishedCount > 0 && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-ca-brand/25 bg-ca-brand-soft px-3.5 py-3 sm:px-4 sm:py-3.5"
+                  >
+                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-ca-brand/20 bg-ca-surface/70 text-ca-brand">
+                      <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-ca-ink">
+                        {analyzingCount > 0 ? 'CodeBERT is analyzing code' : 'Files queued for CodeBERT analysis'}
+                        <span className="ml-2 text-xs font-semibold text-ca-brand">
+                          {unfinishedCount} {unfinishedCount === 1 ? 'file' : 'files'}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-ca-muted">
+                        {analyzingCount > 0
+                          ? 'Please wait while the analysis runs. Results will appear automatically when ready.'
+                          : 'Waiting for the backend to begin analysis. Results will appear automatically.'}
+                        {analyzingCount > 0 && queuedCount > 0 ? ` ${queuedCount} queued.` : ''}
+                      </p>
+                      <p className="mt-1 text-xs font-mono font-semibold text-ca-brand" aria-label="Elapsed analysis time">
+                        {lobbySubmissions.filter(sub => sub.status === 'analyzing' || sub.status === 'pending')
+                          .slice(0, 1).map(sub => analysisClock(sub, clockNowMs)).join('')}
+                      </p>
+                    </div>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-ca-surface/75 px-2.5 py-1 text-[11px] font-semibold text-ca-brand sm:self-center">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-ca-brand animate-pulse motion-reduce:animate-none" />
+                      Auto-refreshing
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="relative flex-1 min-w-0 w-full sm:min-w-[200px]">
                     <Search className="w-4 h-4 text-ca-faint absolute left-3 top-1/2 -translate-y-1/2" />
@@ -782,37 +864,52 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                               </td>
                               <td className="py-3 px-4">
                                 <div className="space-y-1.5">
-                                  <span className="text-xs font-mono font-semibold text-ca-ink">{probPercent}</span>
-                                  <div className="w-24 h-1.5 rounded-full bg-ca-bg-elevated overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full ${
-                                        !hasScore
-                                          ? 'bg-ca-border'
-                                          : sub.riskLevel === 'High'
-                                          ? 'bg-ca-danger'
-                                          : sub.riskLevel === 'Medium'
-                                            ? 'bg-ca-warn'
-                                            : 'bg-ca-ok'
-                                      }`}
-                                      style={{ width: `${hasScore ? Math.min(100, prob * 100) : 0}%` }}
-                                    />
-                                  </div>
+                                  {hasScore ? (
+                                    <>
+                                      <span className="text-xs font-mono font-semibold text-ca-ink">{probPercent}</span>
+                                      <div className="w-24 h-1.5 rounded-full bg-ca-bg-elevated overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${sub.riskLevel === 'High' ? 'bg-ca-danger' : sub.riskLevel === 'Medium' ? 'bg-ca-warn' : 'bg-ca-ok'}`}
+                                          style={{ width: `${Math.min(100, prob * 100)}%` }}
+                                        />
+                                      </div>
+                                    </>
+                                  ) : sub.status === 'analyzing' || sub.status === 'pending' ? (
+                                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ca-brand whitespace-nowrap">
+                                      <LoaderCircle aria-hidden="true" className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+                                      {sub.status === 'analyzing' ? 'Analyzing code…' : 'Waiting in queue…'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-ca-muted" title={sub.errorMessage}>—</span>
+                                  )}
+                                  {analysisClock(sub, clockNowMs) && (
+                                    <span className="block text-[11px] font-mono text-ca-muted whitespace-nowrap" title="Server-recorded processing time; queued time is shown separately">
+                                      {analysisClock(sub, clockNowMs)}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className="py-3 px-4">
                                 <span
                                   className={`inline-block px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase tracking-wide ${
-                                    sub.riskLevel === 'High'
+                                    sub.status === 'failed'
                                       ? 'bg-ca-danger-soft text-ca-danger'
-                                      : sub.riskLevel === 'Medium'
+                                      : sub.status === 'analyzing' || sub.status === 'pending'
                                         ? 'bg-ca-brand-soft text-ca-brand'
-                                        : sub.riskLevel === 'Low'
-                                        ? 'bg-ca-ok-soft text-ca-ok'
-                                        : 'bg-ca-bg-elevated text-ca-muted'
+                                        : sub.riskLevel === 'High'
+                                          ? 'bg-ca-danger-soft text-ca-danger'
+                                          : sub.riskLevel === 'Medium'
+                                            ? 'bg-ca-brand-soft text-ca-brand'
+                                            : sub.riskLevel === 'Low'
+                                              ? 'bg-ca-ok-soft text-ca-ok'
+                                              : 'bg-ca-bg-elevated text-ca-muted'
                                   }`}
                                 >
-                                  <span title={sub.status === 'failed' ? sub.errorMessage || 'Analysis did not complete.' : undefined}>
-                                    {sub.riskLevel || (sub.status === 'failed' ? 'Failed' : sub.status === 'analyzing' ? 'Analyzing' : 'Pending')}
+                                  <span title={sub.status === 'failed' ? sub.errorMessage || 'Analysis did not complete.' : undefined} className="inline-flex items-center gap-1.5">
+                                    {(sub.status === 'analyzing' || sub.status === 'pending') && (
+                                      <LoaderCircle aria-hidden="true" className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+                                    )}
+                                    {sub.status === 'failed' ? 'Failed' : sub.status === 'analyzing' ? 'Analyzing' : sub.status === 'pending' ? 'Queued' : sub.riskLevel || 'Done'}
                                   </span>
                                 </span>
                               </td>
@@ -847,8 +944,11 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                   ) : displayedSubmissions.map((sub) => {
                     const hasScore = sub.status === 'done' && sub.aiProbability !== null;
                     const probability = hasScore ? sub.aiProbability! : 0;
-                    const label = sub.riskLevel || (sub.status === 'failed' ? 'Failed' : sub.status === 'analyzing' ? 'Analyzing' : 'Pending');
-                    const riskColor = sub.riskLevel === 'High' ? 'bg-ca-danger-soft text-ca-danger' :
+                    const isProcessing = sub.status === 'analyzing' || sub.status === 'pending';
+                    const label = sub.status === 'failed' ? 'Failed' : sub.status === 'analyzing' ? 'Analyzing' : sub.status === 'pending' ? 'Queued' : sub.riskLevel || 'Done';
+                    const riskColor = sub.status === 'failed' ? 'bg-ca-danger-soft text-ca-danger' :
+                      isProcessing ? 'bg-ca-brand-soft text-ca-brand' :
+                      sub.riskLevel === 'High' ? 'bg-ca-danger-soft text-ca-danger' :
                       sub.riskLevel === 'Medium' ? 'bg-ca-warn-soft text-ca-warn' :
                       sub.riskLevel === 'Low' ? 'bg-ca-ok-soft text-ca-ok' : 'bg-ca-bg-elevated text-ca-muted';
                     const barColor = sub.riskLevel === 'High' ? 'bg-ca-danger' :
@@ -863,7 +963,10 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                           </div>
                           <span className={`shrink-0 px-2 py-1 rounded-md font-semibold text-[10px] uppercase ${riskColor}`}
                             title={sub.status === 'failed' ? sub.errorMessage || 'Analysis did not complete.' : undefined}>
-                            {label}
+                            <span className="inline-flex items-center gap-1.5">
+                              {isProcessing && <LoaderCircle aria-hidden="true" className="w-3 h-3 animate-spin motion-reduce:animate-none" />}
+                              {label}
+                            </span>
                           </span>
                         </div>
                         <div className="min-w-0 flex items-center gap-2">
@@ -874,10 +977,21 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                         <div className="grid grid-cols-2 gap-3 text-xs">
                           <div>
                             <p className="text-[11px] text-ca-faint">AI prediction</p>
-                            <p className="font-mono font-bold text-ca-ink mt-0.5">{hasScore ? `${(probability * 100).toFixed(1)}%` : '—'}</p>
-                            <div className="mt-1.5 h-1.5 rounded-full bg-ca-bg-elevated overflow-hidden">
-                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${hasScore ? Math.min(100, probability * 100) : 0}%` }} />
-                            </div>
+                            {hasScore ? (
+                              <>
+                                <p className="font-mono font-bold text-ca-ink mt-0.5">{(probability * 100).toFixed(1)}%</p>
+                                <div className="mt-1.5 h-1.5 rounded-full bg-ca-bg-elevated overflow-hidden">
+                                  <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(100, probability * 100)}%` }} />
+                                </div>
+                              </>
+                            ) : isProcessing ? (
+                              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-ca-brand">
+                                <LoaderCircle aria-hidden="true" className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
+                                {sub.status === 'analyzing' ? 'Analyzing code…' : 'Queued…'}
+                              </p>
+                            ) : (
+                              <p className="font-mono font-bold text-ca-muted mt-0.5" title={sub.errorMessage}>—</p>
+                            )}
                           </div>
                           <div>
                             <p className="text-[11px] text-ca-faint">Submitted</p>
@@ -886,6 +1000,11 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                             </p>
                           </div>
                         </div>
+                        {analysisClock(sub, clockNowMs) && (
+                          <p className="text-xs font-mono font-medium text-ca-muted" title="Server-recorded processing time; queued time is shown separately">
+                            {analysisClock(sub, clockNowMs)}
+                          </p>
+                        )}
                         <button type="button" onClick={() => setInspectedSubmission(sub)}
                           className="w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border border-ca-border bg-ca-surface hover:bg-ca-brand hover:text-ca-brand-ink text-ca-ink text-xs font-semibold transition-colors">
                           <Eye className="w-4 h-4" /> Inspect code

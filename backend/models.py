@@ -116,6 +116,10 @@ class Submission(Base):
     risk_level = Column(String(20), nullable=True)  # Low | Medium | High
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Server-side timestamps. Nullable so historical submissions are preserved.
+    # These are UTC-naive like existing created_at values.
+    analysis_started_at = Column(DateTime, nullable=True)
+    analysis_finished_at = Column(DateTime, nullable=True)
 
     # Relationships
     lobby = relationship("Lobby", back_populates="submissions")

@@ -97,6 +97,16 @@ export default function App() {
     }
   }, []);
 
+  // While a submission is running, refresh regularly even if the WebSocket is
+  // healthy; inference may take long and its completion event can be missed.
+  // After 10 minutes, return to normal polling to avoid hammering the backend
+  // if an analysis is genuinely stalled.
+  const hasRecentUnfinishedAnalysis = submissions.some((submission) => {
+    if (submission.status !== 'pending' && submission.status !== 'analyzing') return false;
+    const submittedAt = Date.parse(submission.submittedAt);
+    return !Number.isFinite(submittedAt) || Date.now() - submittedAt < 10 * 60_000;
+  });
+
   // Fetch on login once. WebSocket notifications refresh the live view;
   // polling slows down while a socket is healthy, but never stops entirely.
   useEffect(() => {
@@ -107,10 +117,10 @@ export default function App() {
   useEffect(() => {
     if (!authToken) return;
     const timer = window.setInterval(
-      () => void refreshDashboardData(), socketConnected ? 60_000 : 10_000,
+      () => void refreshDashboardData(), hasRecentUnfinishedAnalysis ? 5_000 : socketConnected ? 60_000 : 10_000,
     );
     return () => window.clearInterval(timer);
-  }, [authToken, refreshDashboardData, socketConnected]);
+  }, [authToken, refreshDashboardData, socketConnected, hasRecentUnfinishedAnalysis]);
 
   const lobbyIdsKey = lobbies.map((lobby) => lobby.id).join(',');
   useEffect(() => {

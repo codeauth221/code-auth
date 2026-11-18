@@ -80,10 +80,12 @@ class SubmissionResponse(SubmissionBase):
     risk_level: Optional[str] = None  # Low | Medium | High
     error_message: Optional[str] = None
     created_at: datetime
+    analysis_started_at: Optional[datetime] = None
+    analysis_finished_at: Optional[datetime] = None
 
-    @field_serializer("created_at", when_used="json")
-    def serialize_created_at(self, value: datetime) -> str:
-        return utc_isoformat(value)
+    @field_serializer("created_at", "analysis_started_at", "analysis_finished_at", when_used="json")
+    def serialize_submission_time(self, value: Optional[datetime]) -> Optional[str]:
+        return utc_isoformat(value) if value is not None else None
 
     class Config:
         from_attributes = True

@@ -44,6 +44,8 @@ def get_dashboard_summary(
             Submission.risk_level,
             Submission.error_message,
             Submission.created_at.label("submission_created_at"),
+            Submission.analysis_started_at,
+            Submission.analysis_finished_at,
         )
         .outerjoin(Submission, Submission.lobby_id == Lobby.id)
         .filter(Lobby.instructor_id == current_instructor.id)
@@ -57,7 +59,7 @@ def get_dashboard_summary(
     for (
         lobby, submission_id, student_id, file_name, submission_language,
         submission_status, ai_probability, risk_level, error_message,
-        submission_created_at,
+        submission_created_at, analysis_started_at, analysis_finished_at,
     ) in rows:
         if lobby.id not in seen_lobbies:
             seen_lobbies.add(lobby.id)
@@ -82,6 +84,8 @@ def get_dashboard_summary(
                 risk_level=risk_level,
                 error_message=error_message,
                 created_at=submission_created_at,
+                analysis_started_at=analysis_started_at,
+                analysis_finished_at=analysis_finished_at,
             ))
 
     # Serialize before any commit; do not produce lazy-refresh database calls.

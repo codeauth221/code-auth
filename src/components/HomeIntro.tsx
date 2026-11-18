@@ -1,5 +1,17 @@
 import React from 'react';
-import { Terminal, AlertTriangle, ArrowRight, Layers } from 'lucide-react';
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Braces,
+  CheckCircle2,
+  ClipboardList,
+  CloudUpload,
+  GraduationCap,
+  Layers3,
+  ScanSearch,
+  ShieldCheck,
+  Terminal,
+} from 'lucide-react';
 import heroHall from '../assets/HB.png';
 
 interface HomeIntroProps {
@@ -8,103 +20,195 @@ interface HomeIntroProps {
   isInstructorLoggedIn: boolean;
 }
 
+const workflow = [
+  {
+    number: '01',
+    label: 'Set up the exam',
+    detail: 'Create an instructor-controlled lobby',
+    icon: ClipboardList,
+  },
+  {
+    number: '02',
+    label: 'Collect submissions',
+    detail: 'Students upload source code with their ID',
+    icon: CloudUpload,
+  },
+  {
+    number: '03',
+    label: 'Review results',
+    detail: 'Inspect submissions and available risk scores',
+    icon: ScanSearch,
+  },
+];
+
+const features = [
+  {
+    number: '01',
+    icon: ClipboardList,
+    eyebrow: 'FOR INSTRUCTORS',
+    title: 'Create an exam lobby',
+    detail:
+      'Configure the course, section, programming language, and duration. Share a unique lobby code or link with your class.',
+  },
+  {
+    number: '02',
+    icon: GraduationCap,
+    eyebrow: 'FOR STUDENTS',
+    title: 'Submit without an account',
+    detail:
+      'Students enter a lobby code and their Student ID, then submit their source files. AI risk scores remain instructor-only.',
+  },
+  {
+    number: '03',
+    icon: Braces,
+    eyebrow: 'SOURCE FILES',
+    title: 'A focused submission flow',
+    detail:
+      'Up to three C, Java, or Python source files per student, with a 200 KB limit for each file.',
+  },
+  {
+    number: '04',
+    icon: ShieldCheck,
+    eyebrow: 'HUMAN-LED REVIEW',
+    title: 'Make informed decisions',
+    detail:
+      'Available classifiers categorize AI probability as Low (< 0.40), Medium (0.40–0.70), or High (≥ 0.70) to help guide manual review.',
+  },
+];
+
 export const HomeIntro: React.FC<HomeIntroProps> = ({
   onNavigateToStudent,
   onNavigateToInstructor,
   isInstructorLoggedIn,
-}) => {
-  return (
-    <div className="ca-fade-up">
-      <section className="ca-hero">
-        <img
-          src={heroHall}
-          alt="CSU Hiraya Hall"
-          className="ca-hero__media"
-        />
-        <div className="ca-hero__scrim" aria-hidden="true" />
+}) => (
+  <div className="ca-home">
+    <section className="ca-hero ca-home-hero" aria-labelledby="ca-home-heading">
+      <img
+        src={heroHall}
+        alt=""
+        aria-hidden="true"
+        className="ca-hero__media"
+        decoding="async"
+      />
+      <div className="ca-hero__scrim" aria-hidden="true" />
 
-        <div className="ca-hero__content space-y-5 sm:space-y-7">
-          <p className="ca-hero-eyebrow text-xs sm:text-base font-semibold tracking-wide">
-            College of Computing and Information Sciences • Caraga State University
-          </p>
+      <div className="ca-hero__content ca-home-hero__content">
+        <div className="ca-home-hero__grid">
+          <div className="ca-home-hero__intro ca-fade-up">
+            <div className="ca-home-kicker">
+              <span className="ca-home-kicker__dot" aria-hidden="true" />
+              CCIS · CARAGA STATE UNIVERSITY
+            </div>
 
-          <h1 className="ca-hero-title font-display text-[clamp(1.85rem,8vw,2.75rem)] sm:text-6xl lg:text-7xl font-bold leading-[1.14] max-w-5xl break-words">
-            <span className="block">
-              Live AI <span className="ca-hero-accent">Source Code Detection</span>
-            </span>
-            <span className="block">
-              for Laboratory <span className="ca-hero-accent">Exams</span>
-            </span>
-          </h1>
+            <h1 id="ca-home-heading" className="ca-home-headline font-display">
+              A smarter way to <span>review code.</span>
+              <small>Built for laboratory exams.</small>
+            </h1>
 
-          <p className="ca-hero-copy max-w-2xl text-sm sm:text-lg leading-relaxed">
-            CodeAuthentic supports exam integrity by helping instructors identify potentially
-            AI-generated C, Java, and Python submissions in timed laboratory exams.
-          </p>
+            <p className="ca-home-description">
+              CodeAuthentic helps instructors examine potentially AI-generated source
+              code, manage timed exam lobbies, and review student submissions in one
+              focused workspace.
+            </p>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1 sm:pt-2">
-            <button onClick={onNavigateToInstructor} className="ca-btn-primary w-full sm:w-auto text-sm sm:text-base !px-4 sm:!px-6 !py-3 sm:!py-3.5">
-              <span>{isInstructorLoggedIn ? 'Open Instructor Dashboard' : 'Instructor Sign In'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="ca-home-actions">
+              <button type="button" className="ca-btn-primary ca-home-primary" onClick={onNavigateToInstructor}>
+                {isInstructorLoggedIn ? 'Open Instructor Dashboard' : 'Instructor Sign In'}
+                <ArrowRight size={18} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              <button type="button" className="ca-btn-secondary ca-home-secondary" onClick={onNavigateToStudent}>
+                <Terminal size={18} aria-hidden="true" />
+                Student Portal
+                <ArrowUpRight size={15} aria-hidden="true" />
+              </button>
+            </div>
 
-            <button onClick={onNavigateToStudent} className="ca-btn-secondary w-full sm:w-auto text-sm sm:text-base !px-4 sm:!px-6 !py-3 sm:!py-3.5">
-              <Terminal className="w-4 h-4 text-ca-brand" />
-              <span>Student Submission Portal</span>
-            </button>
+            <div className="ca-home-assurances" aria-label="Platform highlights">
+              <span><CheckCircle2 size={16} aria-hidden="true" /> Designed for supervised exams</span>
+              <span><ShieldCheck size={16} aria-hidden="true" /> Instructor-led decisions</span>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section className="max-w-7xl mx-auto px-3 sm:px-6 py-10 sm:py-20 space-y-5 sm:space-y-8">
-        <h2 className="text-2xl sm:text-3xl font-bold font-display text-ca-ink flex items-center gap-3">
-          <Layers className="w-6 h-6 text-ca-brand" />
-          <span>How it works</span>
-        </h2>
-
-        <div className="grid sm:grid-cols-2 gap-4 sm:gap-5">
-          {[
-            {
-              step: '01',
-              title: 'Instructor Creates Lobby',
-              body: 'Specifies the course, section, language, and duration. The server saves a unique lobby code and shareable link.',
-            },
-            {
-              step: '02',
-              title: 'Students Submit with ID',
-              body: 'Students enter the code and their Student ID. No student login required; students never see AI scores.',
-            },
-            {
-              step: '03',
-              title: '3 Uploads Maximum',
-              body: 'Every lobby restricts students to at most 3 source code files (.c, .java, .py, up to 200 KB per file).',
-            },
-            {
-              step: '04',
-              title: 'Real-Time Risk Scoring',
-              body: 'Live dashboard groups submissions into Low (< 0.40), Medium (0.40–0.70), and High (≥ 0.70) AI probability.',
-            },
-          ].map((item) => (
-            <article key={item.step} className="ca-panel p-4 sm:p-6 space-y-2 sm:space-y-3">
-              <div className="w-9 h-9 rounded-lg bg-ca-brand-soft text-ca-brand font-bold font-mono text-sm flex items-center justify-center">
-                {item.step}
+          <aside className="ca-home-showcase ca-fade-up" aria-label="CodeAuthentic exam workflow preview">
+            <div className="ca-home-showcase__top">
+              <div className="ca-home-showcase__symbol"><Layers3 size={21} aria-hidden="true" /></div>
+              <div>
+                <span className="ca-home-showcase__eyebrow">HOW CODEAUTHENTIC WORKS</span>
+                <h2>One connected workflow</h2>
               </div>
-              <h3 className="font-bold text-ca-ink text-lg sm:text-xl font-display">{item.title}</h3>
-              <p className="text-sm sm:text-base text-ca-muted leading-relaxed">{item.body}</p>
-            </article>
-          ))}
+              <span className="ca-home-showcase__index">01 / 03</span>
+            </div>
+
+            <div className="ca-home-showcase__list">
+              {workflow.map((step) => {
+                const Icon = step.icon;
+                return (
+                  <div className="ca-home-showcase__step" key={step.number}>
+                    <span className="ca-home-showcase__number">{step.number}</span>
+                    <div className="ca-home-showcase__step-icon"><Icon size={18} aria-hidden="true" /></div>
+                    <div className="ca-home-showcase__step-copy">
+                      <strong>{step.label}</strong>
+                      <p>{step.detail}</p>
+                    </div>
+                    <CheckCircle2 className="ca-home-showcase__check" size={17} aria-hidden="true" />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="ca-home-showcase__footer">
+              <span>Designed around source files</span>
+              <div className="ca-home-lang-tags" aria-label="Languages: C, Java, Python">
+                <span>C</span><span>Java</span><span>Python</span>
+              </div>
+            </div>
+          </aside>
         </div>
 
-        <div className="pt-2 text-sm sm:text-base text-ca-muted flex items-start gap-3 max-w-3xl">
-          <AlertTriangle className="w-5 h-5 text-ca-brand shrink-0 mt-0.5" />
+        <div className="ca-home-hero__bottom" aria-hidden="true">
+          <span>BUILT FOR ACADEMIC INTEGRITY</span>
+          <span className="ca-home-hero__bottom-rule" />
+          <span>01 / CODEAUTHENTIC</span>
+        </div>
+      </div>
+    </section>
+
+    <section className="ca-home-process" aria-labelledby="ca-home-process-title">
+      <div className="ca-home-process__heading">
+        <div>
+          <p className="ca-section-label"><span className="ca-section-label__dash" /> SIMPLE BY DESIGN</p>
+          <h2 id="ca-home-process-title" className="font-display">From first upload to <span>final review.</span></h2>
+        </div>
+        <p>A clear, structured experience for both instructors and students, with no unnecessary steps.</p>
+      </div>
+
+      <div className="ca-home-feature-grid">
+        {features.map((feature) => {
+          const Icon = feature.icon;
+          return (
+            <article className="ca-home-feature-card" key={feature.number}>
+              <div className="ca-home-feature-card__top">
+                <div className="ca-home-feature-card__icon"><Icon size={21} strokeWidth={1.9} aria-hidden="true" /></div>
+                <span>{feature.number} / 04</span>
+              </div>
+              <p className="ca-home-feature-card__eyebrow">{feature.eyebrow}</p>
+              <h3 className="font-display">{feature.title}</h3>
+              <p className="ca-home-feature-card__detail">{feature.detail}</p>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="ca-home-disclaimer" role="note">
+        <div className="ca-home-disclaimer__icon"><ShieldCheck size={22} aria-hidden="true" /></div>
+        <div>
+          <strong>Technology supports judgment. It does not replace it.</strong>
           <p>
-            <strong className="text-ca-brand">Academic Integrity Standard: </strong>
-            Scores are probabilities to support instructor grading and manual code review, not
-            proof of academic dishonesty. Code is treated strictly as plain text and is never
-            executed or compiled.
+            AI risk probabilities are indicators for instructor-led review, not proof of academic
+            dishonesty. Source code is handled as plain text and is never executed or compiled.
           </p>
         </div>
-      </section>
-    </div>
-  );
-};
+      </div>
+    </section>
+  </div>
+);

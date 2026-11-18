@@ -59,6 +59,68 @@ def _head_cache_key(language: str) -> str:
     return f"{language}:{_head_directory(language).resolve()}"
 
 
+class InferenceResourcesUnavailable(RuntimeError):
+    """The hosting container cannot safely start full CodeBERT inference."""
+
+
+def _container_memory_limit_bytes() -> int | None:
+    """Best-effort cgroup v2/v1 hard limit; no heavy imports or network requests.
+
+    This is only a deployment admission guard, not a measurement of peak model RAM.
+    On bare-metal Windows machines these files do not exist, so inference proceeds.
+    """
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            value = Path(path).read_text(encoding="ascii").strip()
+            if value == "max":
+                continue
+            limit = int(value)
+            # cgroups sometimes use an enormous sentinel to mean unlimited.
+            if 0 < limit < 1 << 60:
+                return limit
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def inference_capacity() -> dict:
+    """Report hosting constraints without loading the multi-hundred-MB model."""
+    disabled = os.getenv("CODEAUTHENTIC_DISABLE_ML_INFERENCE", "").strip().lower() in (
+        "1", "true", "yes"
+    )
+    try:
+        minimum_mb = max(1024, int(os.getenv("CODEAUTHENTIC_MIN_INFERENCE_MEMORY_MB", "2048")))
+    except ValueError:
+        minimum_mb = 2048
+    limit = _container_memory_limit_bytes()
+    limit_mb = None if limit is None else round(limit / (1024 * 1024))
+    allowed = not disabled and (limit is None or limit >= minimum_mb * 1024 * 1024)
+    if disabled:
+        reason = "ML inference is disabled by CODEAUTHENTIC_DISABLE_ML_INFERENCE."
+    elif not allowed:
+        reason = (
+            f"CodeBERT inference disabled on this {limit_mb} MB instance: "
+            f"a minimum {minimum_mb} MB container budget is configured. "
+            "Use a separate ML worker or a larger instance; no prediction was generated."
+        )
+    else:
+        reason = None
+    return {
+        "allowed": allowed,
+        "container_memory_limit_mb": limit_mb,
+        "configured_minimum_mb": minimum_mb,
+        "reason": reason,
+        "note": "Admission control only, not proof that inference will fit or complete.",
+    }
+
+
+def require_inference_capacity() -> None:
+    """Fail before loading Torch/CodeBERT on demonstrably undersized containers."""
+    capacity = inference_capacity()
+    if not capacity["allowed"]:
+        raise InferenceResourcesUnavailable(capacity["reason"])
+
+
 class CodeTooShortError(Exception):
     """Raised when submitted code contains fewer than 30 tokens."""
     pass
@@ -131,12 +193,14 @@ def model_readiness() -> dict:
                        "issue": problem}
     ready = [lang for lang in MODEL_IDS if heads[lang]["evaluated_head_present"] and all(dependencies.values())]
     experimental_ready = [lang for lang in ready if heads[lang]["experimental"]]
+    capacity = inference_capacity()
     return {"dependencies": dependencies, "languages": heads, "ready_languages": ready,
             "experimental_languages": experimental_ready,
             "active_languages": [lang for lang in ready if lang not in experimental_ready],
-            "ready_for_inference_attempt": len(ready) == len(MODEL_IDS),
-            "note": "Readiness verifies a local evaluation report and artifacts, not real-world detection accuracy. "
-                    "Experimental Python candidate inference is for review only; do not use results as proof of authorship. "
+            "ready_for_inference_attempt": len(ready) == len(MODEL_IDS) and capacity["allowed"],
+            "inference_capacity": capacity,
+            "note": "Readiness verifies classifier files, reports and dependencies, NOT successful inference. "
+                    "Check inference_capacity before submitting; results are not proof of authorship. "
                     "Use ml.verify_pipeline --file for an end-to-end inference test."}
 
 
@@ -163,74 +227,131 @@ def _get_trained_head(language: str):
     return head
 
 
-def preload_models() -> None:
+def _prefer_local_hf_cache(factory, model_id: str, **kwargs):
+    """Load existing verified HF cache first; download only if cache is missing.
+
+    Previously every new process could wait for remote Hub metadata even though
+    model files were already cached. Do not change checkpoint IDs or tensors.
     """
-    Loads all three CodeBERT models and tokenizers into memory.
-    Optional helper for dedicated ML workers; not called during normal FastAPI startup.
+    try:
+        return factory.from_pretrained(model_id, local_files_only=True, **kwargs)
+    except (OSError, ValueError):
+        # A legitimate first installation may need the public Hugging Face Hub.
+        return factory.from_pretrained(model_id, **kwargs)
+
+
+def _model_device_preference() -> str:
+    """User-selectable placement; default is the EXISTING device_map='auto' path.
+
+    On laptops where Accelerate offloads many layers, explicit 'cpu' sometimes
+    reduces disk swapping; whether it is faster must be benchmarked locally.
+    """
+    value = os.getenv("CODEAUTHENTIC_MODEL_DEVICE", "auto").strip().lower()
+    if value not in ("auto", "cpu", "cuda"):
+        raise ValueError("CODEAUTHENTIC_MODEL_DEVICE must be auto, cpu or cuda")
+    return value
+
+
+def _timing_enabled() -> bool:
+    return os.getenv("CODEAUTHENTIC_PERF_TRACE", "").strip().lower() in ("1", "true", "yes")
+
+
+def _perf_event(event: str, language: str, started: float, *, detail: str = "") -> None:
+    if _timing_enabled():
+        from time import perf_counter
+        # No code content, student IDs, source snippets, passwords or tokens logged.
+        print(f"[CODEBERT PERF] {language} {event}: {perf_counter() - started:.2f}s{detail}", flush=True)
+
+
+def _load_frozen_model(model_id: str):
+    """Keep the exact pretrained MLM checkpoint and frozen eval behavior.
+
+    Explicit cpu/cuda modes are opt-in for investigating slow model offloading.
+    The default 'auto' preserves the original model placement and fallback.
     """
     import torch
-    from transformers import AutoModelForMaskedLM, AutoTokenizer
+    from transformers import AutoModelForMaskedLM
+    preference = _model_device_preference()
+    if preference == "cpu":
+        model = _prefer_local_hf_cache(AutoModelForMaskedLM, model_id)
+        model = model.to("cpu")
+    elif preference == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but no CUDA device is available; use cpu or auto")
+        model = _prefer_local_hf_cache(AutoModelForMaskedLM, model_id).to("cuda")
+    else:
+        try:
+            model = _prefer_local_hf_cache(AutoModelForMaskedLM, model_id, device_map="auto")
+        except Exception:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = _prefer_local_hf_cache(AutoModelForMaskedLM, model_id).to(device)
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+    return model
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[PRELOAD] Loading CodeBERT models on device: {device}")
 
-    for lang, model_id in MODEL_IDS.items():
-        if lang not in _TOKENIZERS:
-            print(f"[PRELOAD] Loading tokenizer for {lang} ({model_id})...")
-            _TOKENIZERS[lang] = AutoTokenizer.from_pretrained(model_id)
+def preload_models() -> None:
+    """Optional helper for dedicated ML workers; not used during API startup."""
+    require_inference_capacity()
+    from transformers import AutoTokenizer
 
-        if lang not in _MODELS:
-            print(f"[PRELOAD] Loading model weights for {lang} ({model_id})...")
-            try:
-                model = AutoModelForMaskedLM.from_pretrained(model_id, device_map="auto")
-            except Exception:
-                model = AutoModelForMaskedLM.from_pretrained(model_id).to(device)
-            model.eval()
-            # Freeze all weights - study does NOT fine-tune CodeBERT weights
-            for param in model.parameters():
-                param.requires_grad = False
-            _MODELS[lang] = model
+    for language, model_id in MODEL_IDS.items():
+        if language not in _TOKENIZERS:
+            _TOKENIZERS[language] = _prefer_local_hf_cache(AutoTokenizer, model_id)
+        if language not in _MODELS:
+            _MODELS[language] = _load_frozen_model(model_id)
 
-    print("[PRELOAD] All CodeBERT models loaded and frozen successfully.")
 
 
 def _get_tokenizer_and_model(language: str):
-    """Retrieves or lazily initializes the tokenizer and model for a language."""
-    import torch
-    from transformers import AutoModelForMaskedLM, AutoTokenizer
-
-    if language not in _TOKENIZERS or language not in _MODELS:
-        model_id = MODEL_IDS.get(language)
-        if not model_id:
-            raise ValueError(f"Unsupported language: {language}")
-
-        if language not in _TOKENIZERS:
-            _TOKENIZERS[language] = AutoTokenizer.from_pretrained(model_id)
-
-        if language not in _MODELS:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            try:
-                model = AutoModelForMaskedLM.from_pretrained(model_id, device_map="auto")
-            except Exception:
-                model = AutoModelForMaskedLM.from_pretrained(model_id).to(device)
-            model.eval()
-            for param in model.parameters():
-                param.requires_grad = False
-            _MODELS[language] = model
-
+    """Lazily initialize each language, preferring cached local weights."""
+    require_inference_capacity()
+    if language not in MODEL_IDS:
+        raise ValueError(f"Unsupported language: {language}")
+    model_id = MODEL_IDS[language]
+    if language not in _TOKENIZERS:
+        from time import perf_counter
+        from transformers import AutoTokenizer
+        started = perf_counter()
+        _TOKENIZERS[language] = _prefer_local_hf_cache(AutoTokenizer, model_id)
+        _perf_event("tokenizer_load", language, started)
+    if language not in _MODELS:
+        from time import perf_counter
+        started = perf_counter()
+        model = _load_frozen_model(model_id)
+        _MODELS[language] = model
+        device_map = getattr(model, "hf_device_map", None)
+        offloaded = ""
+        if isinstance(device_map, dict):
+            locations = {str(value) for value in device_map.values()}
+            if "disk" in locations:
+                offloaded = " offloaded_to_disk=yes"
+            elif len(locations) > 1:
+                offloaded = " multi_device=yes"
+        _perf_event("model_load", language, started,
+                    detail=f" placement={_model_device_preference()}{offloaded}")
     return _TOKENIZERS[language], _MODELS[language]
 
 
+
 def count_tokens(code: str, language: str, *, local_files_only: bool = False) -> int:
-    """Count real CodeBERT tokens; viewer may require local cache to avoid network delays."""
+    """Count actual CodeBERT tokens. Do not contact the Hub if cached locally."""
     if language not in MODEL_IDS:
         raise ValueError(f"Unsupported language: {language}")
     if language not in _TOKENIZERS:
+        from time import perf_counter
         from transformers import AutoTokenizer
-        _TOKENIZERS[language] = AutoTokenizer.from_pretrained(
-            MODEL_IDS[language], local_files_only=local_files_only
-        )
+        started = perf_counter()
+        model_id = MODEL_IDS[language]
+        if local_files_only:
+            tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
+        else:
+            tokenizer = _prefer_local_hf_cache(AutoTokenizer, model_id)
+        _TOKENIZERS[language] = tokenizer
+        _perf_event("tokenizer_load", language, started)
     return len(_TOKENIZERS[language].encode(code, add_special_tokens=False))
+
 
 
 def check_context(code: str, language: str) -> int:
@@ -243,107 +364,122 @@ def check_context(code: str, language: str) -> int:
     return token_count
 
 
-def extract_features(code: str, language: str) -> np.ndarray:
+def _mask_batch_size() -> int:
+    """Number of masked offsets encoded together (1: lowest RAM, 4: fastest candidate).
+
+    This is a runtime setting only. It does not change the trained 770-feature
+    definition, the masking positions, the chunk limit or classifier weights.
     """
-    Extracts a 770-dimensional feature vector from code using frozen CodeBERT:
-    - 510-token chunks with [CLS] and [SEP]
-    - Batched forward pass: row 0 unmasked + 4 masked rows (every 4th token masked)
-    - Mean-pooled last hidden state of unmasked row (768 values)
-    - Mean and std of masked-token negative log-likelihood (2 values)
-    - Average across chunks weighted by chunk length
+    value = os.getenv("CODEAUTHENTIC_MASK_BATCH_SIZE", "2").strip()
+    if value not in ("1", "2", "4"):
+        raise ValueError(
+            "CODEAUTHENTIC_MASK_BATCH_SIZE must be 1, 2 or 4; "
+            "use 1 to minimize RAM or benchmark 2 and 4 locally."
+        )
+    return int(value)
+
+
+def extract_features(code: str, language: str) -> np.ndarray:
+    """Original 770-feature CodeBERT representation with bounded masked batching.
+
+    Each chunk uses the original unmasked mean-pooled 768 hidden units and the
+    four original masked-token offset groups to compute NLL mean/std. No chunk
+    truncation, offset subsampling, model changes, or classifier retraining.
+
+    We encode the masked offsets in small groups so Torch can amortize encoder
+    dispatch overhead. Crucially, the vocabulary head operates ONLY on tokens
+    that were masked, avoiding the old [5, 512, vocab] memory spike.
+
+    CODEAUTHENTIC_MASK_BATCH_SIZE=1|2|4 (default 2). Increasing the group size
+    can be faster, particularly on a GPU, but costs more RAM and is not
+    guaranteed to help on every CPU. Always benchmark on your actual machine.
     """
     import torch
-    import torch.nn.functional as F
+    from time import perf_counter
+    feature_started = perf_counter()
 
+    require_inference_capacity()
+    batch_size = _mask_batch_size()
     tokenizer, model = _get_tokenizer_and_model(language)
+    if not hasattr(model, "roberta") or not hasattr(model, "lm_head"):
+        raise RuntimeError("Unsupported CodeBERT architecture for feature extraction.")
     device = next(model.parameters()).device
 
-    # Tokenize without special tokens
+    # Preserve the training extractor's exact tokenization and 8-chunk cap.
     tokens = tokenizer.encode(code, add_special_tokens=False)
     if len(tokens) < MIN_TOKENS:
         raise CodeTooShortError(f"Code contains {len(tokens)} tokens, fewer than {MIN_TOKENS} minimum.")
-
-    # Split into chunks of 510 tokens (max 8 chunks)
-    chunk_size = 510
-    chunks = [tokens[i : i + chunk_size] for i in range(0, len(tokens), chunk_size)]
-    if len(chunks) > 8:
-        chunks = chunks[:8]
-
-    # Drop tiny trailing chunk if smaller than 20 tokens (unless it's the only chunk)
+    chunks = [tokens[i:i + 510] for i in range(0, len(tokens), 510)][:8]
     if len(chunks) > 1 and len(chunks[-1]) < 20:
         chunks.pop()
 
     chunk_features = []
     chunk_weights = []
-
     mask_token_id = tokenizer.mask_token_id or 103
     cls_token_id = tokenizer.cls_token_id or 0
     sep_token_id = tokenizer.sep_token_id or 2
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for chunk in chunks:
-            chunk_len = len(chunk)
-            chunk_weights.append(chunk_len)
-
-            # Construct inputs: row 0 unmasked, rows 1-4 with masked offsets
+            chunk_weights.append(len(chunk))
             input_seq = [cls_token_id] + chunk + [sep_token_id]
             seq_len = len(input_seq)
 
-            batch_rows = [list(input_seq) for _ in range(5)]
-            masked_positions_list = []
+            # Unmasked row: identical mean pooling over nonspecial token states.
+            unmasked_ids = torch.tensor([input_seq], dtype=torch.long, device=device)
+            hidden = model.roberta(input_ids=unmasked_ids, output_hidden_states=False).last_hidden_state
+            mean_hidden = hidden[0, 1:seq_len - 1, :].mean(dim=0).cpu().numpy()
+            del hidden, unmasked_ids
 
-            # Rows 1 to 4 mask every 4th token with offsets 0, 1, 2, 3
-            for offset in range(4):
-                row_idx = offset + 1
-                masked_indices = []
-                for pos in range(1, seq_len - 1):  # exclude CLS and SEP
-                    if (pos - 1) % 4 == offset:
-                        batch_rows[row_idx][pos] = mask_token_id
-                        masked_indices.append(pos)
-                masked_positions_list.append(masked_indices)
-
-            batch_tensor = torch.tensor(batch_rows, dtype=torch.long, device=device)
-            attention_mask = torch.ones_like(batch_tensor)
-
-            outputs = model(
-                input_ids=batch_tensor,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-            )
-
-            # 1. Mean-pooled last hidden state of unmasked row 0 (768 values)
-            last_hidden = outputs.hidden_states[-1]  # [5, seq_len, 768]
-            unmasked_hidden = last_hidden[0, 1 : seq_len - 1, :]  # exclude CLS/SEP
-            mean_hidden = unmasked_hidden.mean(dim=0).cpu().numpy()  # shape (768,)
-
-            # 2. Masked-token negative log-likelihood (rows 1-4)
-            logits = outputs.logits  # [5, seq_len, vocab_size]
-            log_probs = F.log_softmax(logits, dim=-1)
-
+            # Gather NLLs in the SAME order as the original four-offset feature.
             nlls = []
-            for offset in range(4):
-                row_idx = offset + 1
-                positions = masked_positions_list[offset]
-                for pos in positions:
-                    true_token = input_seq[pos]
-                    token_nll = -log_probs[row_idx, pos, true_token].item()
-                    nlls.append(token_nll)
+            for start in range(0, 4, batch_size):
+                offset_batch = range(start, min(4, start + batch_size))
+                positions_batch = []
+                rows = []
+                for offset in offset_batch:
+                    positions = list(range(1 + offset, seq_len - 1, 4))
+                    positions_batch.append(positions)
+                    masked_ids = list(input_seq)
+                    for pos in positions:
+                        masked_ids[pos] = mask_token_id
+                    rows.append(masked_ids)
 
-            if nlls:
-                nll_mean = float(np.mean(nlls))
-                nll_std = float(np.std(nlls))
-            else:
-                nll_mean = 0.0
-                nll_std = 0.0
+                masked_tensor = torch.tensor(rows, dtype=torch.long, device=device)
+                masked_hidden = model.roberta(
+                    input_ids=masked_tensor, output_hidden_states=False
+                ).last_hidden_state
 
-            chunk_vec = np.concatenate([mean_hidden, np.array([nll_mean, nll_std])])
-            chunk_features.append(chunk_vec)
+                # Do not compute all-token MLM logits. Evaluate only masked positions.
+                for row_index, positions in enumerate(positions_batch):
+                    if not positions:
+                        continue
+                    position_ids = torch.tensor(positions, dtype=torch.long, device=device)
+                    selected_hidden = masked_hidden[row_index].index_select(0, position_ids)
+                    logits = model.lm_head(selected_hidden)
+                    true_token_ids = torch.tensor(
+                        [input_seq[pos] for pos in positions], dtype=torch.long, device=logits.device
+                    ).unsqueeze(1)
+                    # Mathematically identical to -log_softmax(logits)[true_token],
+                    # without materializing another full-vocabulary log-prob tensor.
+                    selected_nll = (
+                        torch.logsumexp(logits, dim=-1)
+                        - logits.gather(1, true_token_ids).squeeze(1)
+                    )
+                    nlls.extend(selected_nll.cpu().tolist())
+                    del position_ids, selected_hidden, logits, true_token_ids, selected_nll
+                del masked_tensor, masked_hidden
 
-    # Weighted average across chunks by chunk length
-    weights = np.array(chunk_weights, dtype=float)
-    weights /= np.sum(weights)
-    final_vector = np.sum([feat * w for feat, w in zip(chunk_features, weights)], axis=0)
-    return final_vector
+            nll_mean = float(np.mean(nlls)) if nlls else 0.0
+            nll_std = float(np.std(nlls)) if nlls else 0.0
+            chunk_features.append(np.concatenate([mean_hidden, np.array([nll_mean, nll_std])]))
+
+    weights = np.asarray(chunk_weights, dtype=float)
+    weights /= weights.sum()
+    result = np.sum([feat * w for feat, w in zip(chunk_features, weights)], axis=0)
+    _perf_event("feature_extraction", language, feature_started,
+                detail=f" chunks={len(chunks)} mask_batch={batch_size}")
+    return result
 
 
 def predict(code: str, language: str) -> float:
@@ -380,14 +516,18 @@ def analyze(code: str, filename: str) -> Dict[str, any]:
     if not language:
         raise ValueError(f"Unsupported file extension '{ext}'. Allowed: .c, .java, .py")
 
-    # Confirm trained head availability before downloading heavyweight CodeBERT weights.
+    from time import perf_counter
+    started = perf_counter()
+    # Preserve validation, accuracy and 770-dimensional feature computation.
     _get_trained_head(language)
+    _perf_event("classifier_ready", language, started)
 
-    # Verify context length
+    token_started = perf_counter()
     check_context(code, language)
+    _perf_event("token_validation", language, token_started)
 
-    # Run prediction
     score = predict(code, language)
+    _perf_event("analysis_total", language, started)
     risk = risk_level(score)
 
     return {

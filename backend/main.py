@@ -44,9 +44,24 @@ async def lifespan(app: FastAPI):
     # 2. Initialize database tables in development
     create_tables()
 
-    yield
+    # Repair orphaned pending/analyzing rows after restarts. This worker only
+    # updates old statuses; it NEVER runs CodeBERT or assigns AI scores.
+    async def stale_analysis_recovery_loop():
+        from backend.analysis import recover_stale_analyses
+        while True:
+            await asyncio.to_thread(recover_stale_analyses)
+            await asyncio.sleep(60)
 
-    print("[SHUTDOWN] Stopping CodeAuthentic server...")
+    recovery_task = asyncio.create_task(stale_analysis_recovery_loop())
+    try:
+        yield
+    finally:
+        recovery_task.cancel()
+        try:
+            await recovery_task
+        except asyncio.CancelledError:
+            pass
+        print("[SHUTDOWN] Stopping CodeAuthentic server...")
 
 
 # Initialize FastAPI application

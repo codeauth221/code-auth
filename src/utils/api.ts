@@ -43,6 +43,8 @@ interface ApiSubmission {
   risk_level: Submission['riskLevel'];
   error_message?: string | null;
   created_at: string;
+  analysis_started_at?: string | null;
+  analysis_finished_at?: string | null;
 }
 
 interface ApiSubmissionCode {
@@ -174,6 +176,8 @@ function mapSubmission(submission: ApiSubmission): Submission {
     tokenCount: null,
     indicators: [],
     submittedAt: utcTimestamp(submission.created_at),
+    analysisStartedAt: submission.analysis_started_at ? utcTimestamp(submission.analysis_started_at) : null,
+    analysisFinishedAt: submission.analysis_finished_at ? utcTimestamp(submission.analysis_finished_at) : null,
   };
 }
 

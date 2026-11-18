@@ -1,80 +1,65 @@
-# CodeAuthentic: Python + Java CodeBERT — local experimental integration
+# CodeAuthentic — Real Analysis Timer (safe patch)
 
-This setup uses your **existing local candidates**. It installs no third-party packages, modifies **no** React/FastAPI source files and does **not** touch `ml/heads/c.*` or your C dataset.
+## Features
 
-The existing `ml/predictor.py` already loads independently trained classifiers from `ml/heads/`. Existing `backend/analysis.py` saves real inference results and the instructor UI already displays them. This kit safely makes the two trained classifiers available for that existing path.
+- While a student file is **pending**, shows `Queued · 12s`.
+- While the backend is **analyzing**, shows a live ticker such as `Analyzing · 42s` in the instructor dashboard banner, desktop table, and mobile cards. Updates each second without making a new API call every second.
+- When **done**, shows `Worked for 50s` from **backend-recorded start and finish timestamps**. The duration remains after refresh or on another instructor device.
+- If a normally handled analysis fails, shows `Stopped after 50s` (no fake prediction).
+- Existing historical submissions remain as-is and intentionally show **no duration**, because past timing data was never recorded. Stale-recovered jobs do not invent an end time.
 
-**This is LOCAL TESTING, not production rollout.** CodeBERT probabilities are not proof of AI authorship. Before meaningful classroom use, check generalization on independent student code and evaluate false positives.
+**Duration definition:** From the backend's transition into `analyzing` to its transition into `done` or a normally handled `failed` state. Includes any waiting inside the inference lock, CodeBERT model loading, analysis, and backend processing. Does not include file upload validation or dashboard polling delay. The timer therefore measures the end-to-end analysis job, **not only PyTorch model execution**. Queued time before the job is claimed is shown separately.
 
-## Before starting
-1. Confirm Java training has finished (it has, according to your posted report). Close running local FastAPI server so it will reload models afterward. Keep your PostgreSQL database and frontend as-is.
-2. Extract this ZIP into **a separate folder** such as `Downloads\codeauth_py_java_test` (do not overwrite project files by extracting into the thesis folder).
-3. Check that these FOUR files exist in your original project:
-   - `ml\candidates\python.joblib`, `ml\candidates\python.json`
-   - `ml\candidates\java.joblib`, `ml\candidates\java.json`
-4. Keep `.venv` set up with the same dependencies you used to train both models.
+## Files changed
 
-## 1. Integrate the two trained candidates
-Open PowerShell **inside the extracted kit folder** and run:
+- `backend/models.py`
+- `backend/database.py`
+- `backend/schemas.py`
+- `backend/analysis.py`
+- `backend/routes/dashboard.py`
+- `src/types.ts`
+- `src/utils/api.ts`
+- `src/components/InstructorDashboard.tsx`
+- Adds `tests/test_analysis_timing.py`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\APPLY_PYTHON_JAVA_LOCAL.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
-```
+**Not touched:** `ml/predictor.py`, Python/Java/C classifier files, trained heads, UI theme/CSS, project launcher, existing scores, authentication. No external timer service.
 
-Checks performed **before touching ml/heads**: both candidates and JSON reports exist; SHA-256 hashes match; feature versions and model IDs match **your local code**; Problem_id evaluation was used; sample counts and project quality thresholds pass; an existing different active model isn't overwritten. It copies only missing `ml/heads/python.*` and `ml/heads/java.*` and creates a rollback snapshot under `ml/_python_java_test_backups/`. It verifies both installed heads using the original project predictor. No C files are changed.
+## Before installation
 
-Expected final lines:
-
-```text
-[READY] python: verified local classifier
-[READY] java: verified local classifier
-[NOT READY] c: ...
-[SUCCESS] Python and Java are installed for local testing. C was not modified.
-```
-
-The original `ready_for_inference_attempt` flag may still be **false**, because that flag means **all three** languages are ready. `ready_languages` should include `python` and `java`.
-
-**Do not copy model files to Vercel or redeploy yet.** Java's saved classifier itself is NOT bundled in this ZIP: the installer uses the file already on your laptop.
-
-## 2. Test BOTH models with the real inference pipeline
-This inference smoke test can run without starting FastAPI or the frontend:
+1. **Back up your current code AND your PostgreSQL/Supabase database** (especially if local and Render share the same database). On backend startup this patch executes additive `ALTER TABLE submissions ADD COLUMN` for two nullable timestamp columns. It doesn't delete or rewrite existing rows; this schema change is shared by every service using that DB. Database changes are not rolled back automatically by the file installer.
+2. Close the local FastAPI and Vite terminal windows after any current analyses complete.
+3. Extract this ZIP in a separate directory. Do not extract over your running project.
+4. Open PowerShell in the extracted patch directory.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\TEST_PYTHON_JAVA_MODELS.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
+powershell -ExecutionPolicy Bypass -File .\APPLY_ANALYSIS_TIMER_PATCH.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
 ```
 
-It calls the project's real `ml.verify_pipeline` for a new `.py` and `.java` sample, returning each model's actual `ai_probability` and `risk_level`. These samples were generated by AI for an **engineering smoke test**, not accuracy benchmarking. Do not expect a specific risk result. Model weights may be downloaded if the Java/Python CodeBERT weights are not already cached.
+The installer checks hashes of **all eight** source files against `CodeAuthentic_Latest_Source_Inspection.zip` provided Nov 18, 2026, before replacing anything. Backups are stored under `%LOCALAPPDATA%\CodeAuthenticPatchBackups`. If you get `SOURCE MISMATCH`, **stop**: don't force overwrite. Send the latest changed file or ZIP so we can merge it safely.
 
-You can also test your own files with these **project-root commands**:
+## Verify
+
+From project root with virtual environment active:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ml.verify_pipeline --language python --file .\your_sample.py
-.\.venv\Scripts\python.exe -m ml.verify_pipeline --language java --file .\YourSample.java
+python -m compileall -q backend
+$env:PYTHONPATH = (Get-Location).Path
+python .\tests\test_analysis_regression.py
+python .\tests\test_analysis_timing.py
+npm run lint
+npm run build
 ```
 
-## 3. Test a full student upload and instructor result
-1. Restart the **local** backend and frontend with your existing `START_SYSTEM.bat` (do not start a duplicate server on port 8000).
-2. Login as instructor, create a **new unlocked Python lobby**, and open its student link in an incognito window.
-3. Submit a `.py` file with at least 30 CodeBERT tokens as a new student ID.
-4. Wait for submission status `done` in Live Student Submissions. Confirm a numeric AI probability and Low/Medium/High risk, and that Inspect displays the submitted source code. If it shows `failed`, copy the error message/console traceback; do not fabricate values.
-5. Repeat with a **new unlocked Java lobby**, a new student ID, and a `.java` file.
-6. Do **not** create/use C lobbies for scoring yet. C currently has no active classifier and C uploads may fail analysis if submitted.
-7. Ensure students do NOT see instructor-only AI scores. Existing records with `failed` status do not automatically reprocess: upload a new test file to generate a new analysis job.
+If `npm run lint` reports errors **only** in old Navbar backup folders, that's the pre-existing TypeScript scanning issue, not a timer error. Don't delete those backups without checking. The complete frontend Vite build was **not available** in our test environment; run both commands on your Windows machine.
 
-Tests 1 and 2 are local artifact/inference checks. Step 3 requires your running backend, configured database and browser; this kit does **not** claim those live tests were run in this environment.
+Restart by double-clicking `START_SYSTEM.bat` (keep your existing `CODEAUTHENTIC_MASK_BATCH_SIZE=1` and `CODEAUTHENTIC_MODEL_DEVICE=cpu` settings). Watch terminal for `[SCHEMA] Added optional ...` and `[INFO] Database tables verified/created successfully.`
 
-## 4. Roll back only this model integration (optional)
-Stop FastAPI first and run from this kit folder:
+Create a NEW submission in a C / Java / Python lobby and observe elapsed timer while running. It should show `Worked for XXs` once completed, even after reloading the instructor dashboard. Existing finished files will not acquire fabricated durations.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\UNDO_PYTHON_JAVA_LOCAL.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
-```
+## Safety
 
-Rollback restores the previous state of **only** `ml/heads/python.{joblib,json}` and `ml/heads/java.{joblib,json}` from the most recent installation backup. It stops if any installed artifact has been changed in the meantime. Restart the backend afterward.
-
-## Notes
-- The test models remain *experimental*. The original Python candidate missed AI-like samples outside its held-out dataset; independently validate more examples before deploying for classroom use.
-- The classifying model is a frozen CodeBERT encoder + fitted classifier head; the `.joblib` file alone is not the pretrained CodeBERT weights. The local environment must have downloaded weights cached or internet access.
-- A few local inference attempts can use considerable RAM. Avoid running a training job concurrently with these tests.
-- Nothing in this kit edits the latest instructor navbar, premium CSS, student upload UI, database, or C language training data.
-- If the installer prints `[STOPPED SAFELY]`, send its complete output for diagnosis instead of copying `.joblib` manually.
+- Live-model tests were not executed in the patch environment; old regression tests and timing tests use isolated SQLite and stub predictors.
+- This patch has no influence on the confirmed 512MB Render Free CodeBERT limitation; Render will still reject heavyweight inference safely after the memory patch.
+- This patch does NOT add an ETA or fake progress percent; it only displays elapsed measured time.
+- It does not retry or modify historical submissions.
+- For rollback, restore backed-up source files. The added nullable database columns can be left in place safely; don't drop them to roll back source code.

@@ -109,6 +109,23 @@ def create_tables() -> None:
     """
     from backend import models  # noqa: F401
 
+    # Safe additive migration for per-submission analysis timers.
+    # Never trigger the legacy archival path merely because these new optional
+    # columns are missing. Existing student submissions and scores are untouched.
+    with engine.begin() as connection:
+        current_inspector = inspect(connection)
+        if "submissions" in current_inspector.get_table_names():
+            present = {column["name"] for column in current_inspector.get_columns("submissions")}
+            for column in ("analysis_started_at", "analysis_finished_at"):
+                if column not in present:
+                    statement = (
+                        f"ALTER TABLE submissions ADD COLUMN IF NOT EXISTS {column} TIMESTAMP"
+                        if connection.dialect.name == "postgresql"
+                        else f"ALTER TABLE submissions ADD COLUMN {column} DATETIME"
+                    )
+                    connection.execute(text(statement))
+                    print(f"[SCHEMA] Added optional submissions.{column} for analysis timing")
+
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     model_tables = ("instructors", "lobbies", "submissions")

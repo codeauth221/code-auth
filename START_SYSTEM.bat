@@ -100,6 +100,16 @@ powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8000 -State 
 if errorlevel 1 goto :backend_port_busy
 powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }" >nul 2>&1
 if errorlevel 1 goto :frontend_port_busy
+
+set "CODEAUTHENTIC_MASK_BATCH_SIZE=1"
+rem CodeBERT local inference configuration
+set "CODEAUTHENTIC_MASK_BATCH_SIZE=1"
+set "CODEAUTHENTIC_MODEL_DEVICE=cpu"
+
+echo [4/4] Starting local FastAPI and React frontend...
+echo.
+start "CodeAuthentic - Backend (FastAPI)" cmd /k ".venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000"
+
 echo [4/4] Starting local FastAPI and React frontend...
 echo.
 start "CodeAuthentic - Backend (FastAPI)" cmd /k ".venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000"

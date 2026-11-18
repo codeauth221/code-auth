@@ -16,6 +16,7 @@ export const CodeModal: React.FC<CodeModalProps> = ({ submission, onClose, onLoa
   const [loading, setLoading] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [retry, setRetry] = React.useState(0);
+  const [visibleLineCount, setVisibleLineCount] = React.useState(400);
   const submissionId = submission?.id;
   const lobbyId = submission?.lobbyId;
 
@@ -23,6 +24,7 @@ export const CodeModal: React.FC<CodeModalProps> = ({ submission, onClose, onLoa
     if (!submission) return;
     let active = true;
     setCode(null);
+    setVisibleLineCount(400);
     setTokenCount(null);
     setLoadError(null);
     setLoading(true);
@@ -38,9 +40,10 @@ export const CodeModal: React.FC<CodeModalProps> = ({ submission, onClose, onLoa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submissionId, lobbyId, retry]);
 
-  if (!submission) return null;
+  const lines = React.useMemo(() => code === null ? [] : code.split('\n'), [code]);
+  const visibleLines = React.useMemo(() => lines.slice(0, visibleLineCount), [lines, visibleLineCount]);
 
-  const lines = code === null ? [] : code.split('\n');
+  if (!submission) return null;
 
   const handleCopy = () => {
     if (code === null || !navigator.clipboard?.writeText) return;
@@ -157,7 +160,7 @@ export const CodeModal: React.FC<CodeModalProps> = ({ submission, onClose, onLoa
           )}
           {!loading && !loadError && code !== null && (
           <div className="min-w-full">
-            {lines.map((line, idx) => (
+            {visibleLines.map((line, idx) => (
               <div key={idx} className="flex w-max min-w-full hover:bg-ca-surface-hover py-0.5 px-1 sm:px-2 rounded">
                 <span className="w-10 select-none text-ca-faint text-right pr-4 shrink-0 font-mono">
                   {idx + 1}
@@ -165,6 +168,11 @@ export const CodeModal: React.FC<CodeModalProps> = ({ submission, onClose, onLoa
                 <span className="whitespace-pre text-ca-muted">{line || ' '}</span>
               </div>
             ))}
+            {visibleLines.length < lines.length && (
+              <button type="button" className="ca-code-more" onClick={() => setVisibleLineCount((count) => count + 400)}>
+                Showing {visibleLines.length.toLocaleString()} of {lines.length.toLocaleString()} lines · Load next {Math.min(400, lines.length - visibleLines.length).toLocaleString()} lines
+              </button>
+            )}
           </div>
           )}
         </div>

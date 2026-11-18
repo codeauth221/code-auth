@@ -1,0 +1,171 @@
+/* ========================================================================== */
+/* CodeAuthentic | compact mobile instructor console + safe-area bottom dock  */
+/* Additive, CSS-only overrides. No ML, API, training or desktop logic changes. */
+/* ========================================================================== */
+@media (max-width: 1023px) {
+  /* Sidebar turns into a floating, always-visible bottom navigation on mobile.
+     Works even when the page scrolls through long submission lists. */
+  .ca-instructor-shell .ca-instructor-dock {
+    position: fixed;
+    z-index: 41;
+    left: 50%;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(490px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px))) !important;
+    max-width: none;
+    margin: 0;
+  }
+  .ca-instructor-dock .ca-sidebar-panel {
+    display: block;
+    min-height: 0;
+    padding: 6px;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--ca-surface) 94%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ca-border) 74%, transparent);
+    box-shadow: 0 10px 35px rgba(27, 20, 15, .20), 0 1px 4px rgba(27, 20, 15, .06);
+    -webkit-backdrop-filter: blur(12px) saturate(1.08);
+    backdrop-filter: blur(12px) saturate(1.08);
+  }
+  .dark .ca-instructor-dock .ca-sidebar-panel {
+    background: rgba(28, 25, 24, .94);
+    border-color: rgba(255,255,255,.12);
+    box-shadow: 0 10px 40px rgba(0,0,0,.42);
+  }
+  .ca-instructor-dock .ca-sidebar-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .ca-instructor-dock .ca-side-nav-item {
+    min-width: 0;
+    min-height: 55px;
+    padding: 7px 4px 6px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    border-radius: 16px;
+    font-size: 10px;
+    line-height: 1.1;
+    letter-spacing: .005em;
+    text-align: center;
+    white-space: nowrap;
+    transition: background .14s ease, color .14s ease;
+  }
+  .ca-instructor-dock .ca-side-nav-item svg { width: 19px; height: 19px; stroke-width: 2.05; }
+  .ca-instructor-dock .ca-side-nav-item.is-active {
+    color: var(--ca-brand);
+    background: color-mix(in srgb, var(--ca-brand-soft) 80%, var(--ca-surface) 20%);
+    border-color: color-mix(in srgb, var(--ca-brand) 22%, transparent);
+  }
+  .ca-instructor-dock .ca-side-nav-item.is-active::before {
+    left: 40%; right: 40%; top: auto; bottom: 2px;
+    height: 2px; width: auto;
+    border-radius: 3px;
+    background: var(--ca-brand);
+  }
+  .ca-instructor-dock .ca-side-nav-item:not(.is-active):active { background: var(--ca-surface-hover); }
+
+  /* Content remains scrollable above the bottom navigation. */
+  .ca-hero--app:has(.ca-instructor-shell) .ca-hero__content {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .ca-page:has(.ca-instructor-shell) > footer {
+    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .ca-instructor-shell { gap: 0; }
+}
+
+@media (max-width: 639px) {
+  /* Remove the old top tab strip spacing and use the space for real content. */
+  .ca-hero--app:has(.ca-instructor-shell) .ca-hero__content {
+    padding-top: calc(4.55rem + env(safe-area-inset-top, 0px));
+    padding-inline: 12px;
+  }
+  .ca-instructor-main > :is(.space-y-4, .space-y-6) > :not(:last-child) {
+    margin-bottom: 12px;
+  }
+
+  /* Small-screen hero: focused copy and one-row toolbar, fewer scrolls. */
+  .ca-instructor-shell .ca-screen-hero {
+    padding: 16px 15px;
+    border-radius: 17px;
+    gap: 12px;
+    box-shadow: 0 7px 20px rgba(29,28,33,.13);
+  }
+  .ca-instructor-shell .ca-screen-eyebrow {
+    margin-bottom: 7px;
+    font-size: 9px;
+    letter-spacing: .105em;
+  }
+  .ca-instructor-shell .ca-screen-title { font-size: clamp(21px, 5.5vw, 25px); line-height: 1.1; }
+  .ca-instructor-shell .ca-screen-subtitle { margin-top: 7px; font-size: 11px; line-height: 1.42; }
+  .ca-instructor-shell .ca-screen-hero-meta { margin-top: 10px; gap: 5px; }
+  .ca-instructor-shell .ca-screen-hero-meta > span {
+    padding: 5px 7px;
+    font-size: 9px;
+    line-height: 1.15;
+  }
+  /* Completed analyses already appears in the insight card; keep live status. */
+  .ca-screen-hero--dashboard .ca-screen-hero-meta > span:nth-child(2) { display: none; }
+  .ca-screen-hero--dashboard .ca-hero-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1.17fr);
+    align-items: stretch;
+    gap: 6px;
+    margin-top: 1px;
+  }
+  .ca-screen-hero--dashboard .ca-hero-actions > button {
+    grid-column: auto;
+    min-width: 0;
+    min-height: 39px;
+    padding: 7px 5px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    gap: 5px;
+  }
+  .ca-screen-hero--dashboard .ca-hero-actions > button svg { width: 14px; height: 14px; flex: none; }
+  .ca-screen-hero--dashboard .ca-hero-actions > button:hover { transform: none; }
+
+  /* Stats stay two-column but lose the excessive blank vertical area. */
+  .ca-instructor-shell .ca-stats-grid { gap: 8px; }
+  .ca-instructor-shell .ca-stat-card {
+    min-height: 103px;
+    padding: 11px 12px 10px;
+    border-radius: 14px;
+    gap: 3px;
+    box-shadow: 0 3px 12px rgba(30,22,20,.07);
+  }
+  .ca-instructor-shell .ca-stat-heading > span:first-child { font-size: 10px; line-height: 1.3; }
+  .ca-instructor-shell .ca-stat-icon { width: 28px; height: 28px; border-radius: 9px; }
+  .ca-instructor-shell .ca-stat-icon svg { width: 16px; height: 16px; }
+  .ca-instructor-shell .ca-stat-value { font-size: 27px; }
+  .ca-instructor-shell .ca-stat-meta { margin-top: 1px; font-size: 9px; line-height: 1.2; }
+
+  /* Keep lobbies and submission cards tight without reducing tap targets. */
+  .ca-instructor-shell .ca-dashboard-grid { gap: 10px; }
+  .ca-instructor-shell .ca-quick-lobbies { min-height: 0; padding: 13px; gap: 9px; }
+  .ca-instructor-shell .ca-panel-heading { font-size: 16px; line-height: 1.2; }
+  .ca-instructor-shell .ca-quick-lobby-card { min-height: 0; padding: 12px; }
+  .ca-instructor-shell .ca-review-panel { padding: 15px; }
+  .ca-instructor-shell .ca-review-description { margin-top: 4px; }
+  .ca-instructor-shell .ca-lobby-index { padding: 12px; }
+  .ca-instructor-shell .ca-lobby-list-item { padding: 10px 11px; }
+  .ca-instructor-shell .ca-lobby-detail { padding: 12px; }
+  .ca-instructor-shell .ca-submissions-panel { padding: 12px; }
+  .ca-instructor-shell .ca-submissions-mobile article { padding: 12px; row-gap: 10px; }
+}
+
+@media (max-width: 359px) {
+  .ca-screen-hero--dashboard .ca-hero-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ca-screen-hero--dashboard .ca-hero-actions > button { font-size: 9px; gap: 3px; }
+  .ca-instructor-dock .ca-side-nav-item { font-size: 9px; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .ca-instructor-dock .ca-sidebar-panel { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-instructor-dock .ca-side-nav-item { transition: none; }
+}
