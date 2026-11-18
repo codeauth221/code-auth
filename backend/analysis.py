@@ -62,6 +62,10 @@ def run_analysis(submission_id: int) -> None:
     An interrupted process cannot execute its exception handler; the periodic
     stale-job recovery below handles those orphaned rows after a grace period.
     """
+    from backend.worker_mode import remote_mode
+    if remote_mode():
+        logger.info("[ANALYSIS SKIP] %s is reserved for the remote worker queue", submission_id)
+        return
     started = time.perf_counter()
     db = SessionLocal()
     try:
@@ -157,6 +161,10 @@ def recover_stale_analyses() -> int:
     The long grace period errs on the side of NOT cancelling a legitimate
     slow job. Recovery does not assign a fake completion duration.
     """
+    from backend.worker_mode import remote_mode
+    if remote_mode():
+        from backend.routes.worker import recover_expired_leases
+        return recover_expired_leases()
     try:
         minutes = max(30, int(os.getenv("CODEAUTHENTIC_ANALYSIS_STALE_MINUTES", "60")))
     except ValueError:

@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.database import create_tables, test_connection
-from backend.routes import auth, dashboard, lobbies, submissions
+from backend.routes import auth, dashboard, lobbies, submissions, worker
 from backend.security import decode_token, get_current_instructor
 from backend.ws import manager, set_event_loop
 from ml.predictor import model_readiness
@@ -95,6 +95,7 @@ app.include_router(auth.router)
 app.include_router(lobbies.router)
 app.include_router(submissions.router)
 app.include_router(dashboard.router)
+app.include_router(worker.router)
 
 
 # Measure server work; never log request bodies, credentials or query strings.

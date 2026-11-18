@@ -66,6 +66,18 @@ export interface MlReadiness {
   }>;
 }
 
+export interface RemoteWorkerStatus {
+  mode: 'local' | 'remote';
+  connected: boolean;
+  last_seen_at: string | null;
+  queued: number;
+  analyzing: number;
+}
+
+export async function getRemoteWorkerStatus(token: string): Promise<RemoteWorkerStatus> {
+  return request<RemoteWorkerStatus>('/instructor/worker-status', { cache: 'no-store' }, token);
+}
+
 interface ApiPublicLobby {
   active: boolean;
   subject: string;

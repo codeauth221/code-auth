@@ -116,15 +116,23 @@ def create_tables() -> None:
         current_inspector = inspect(connection)
         if "submissions" in current_inspector.get_table_names():
             present = {column["name"] for column in current_inspector.get_columns("submissions")}
-            for column in ("analysis_started_at", "analysis_finished_at"):
+            additions = {
+                "analysis_started_at": "TIMESTAMP",
+                "analysis_finished_at": "TIMESTAMP",
+                "worker_claim_hash": "VARCHAR(64)",
+                "worker_claimed_by": "VARCHAR(64)",
+                "worker_lease_expires_at": "TIMESTAMP",
+                "worker_attempts": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, sql_type in additions.items():
                 if column not in present:
                     statement = (
-                        f"ALTER TABLE submissions ADD COLUMN IF NOT EXISTS {column} TIMESTAMP"
+                        f"ALTER TABLE submissions ADD COLUMN IF NOT EXISTS {column} {sql_type}"
                         if connection.dialect.name == "postgresql"
-                        else f"ALTER TABLE submissions ADD COLUMN {column} DATETIME"
+                        else f"ALTER TABLE submissions ADD COLUMN {column} {sql_type}"
                     )
                     connection.execute(text(statement))
-                    print(f"[SCHEMA] Added optional submissions.{column} for analysis timing")
+                    print(f"[SCHEMA] Added optional submissions.{column} for remote worker compatibility")
 
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())

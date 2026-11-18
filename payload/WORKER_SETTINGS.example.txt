@@ -1,0 +1,5 @@
+# Copy the lines below to %LOCALAPPDATA%\CodeAuthenticWorker\worker.env
+# Never commit the real token to GitHub and never upload it to chat.
+CODEAUTHENTIC_API_URL=https://codeauthentic-backend.onrender.com
+CODEAUTHENTIC_WORKER_ID=friend-laptop
+CODEAUTHENTIC_WORKER_TOKEN=REPLACE_WITH_THE_SAME_LONG_SECRET_SET_ON_RENDER

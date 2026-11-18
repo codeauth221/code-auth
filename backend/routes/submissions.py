@@ -222,8 +222,10 @@ def submit_code(
 
         # Queue background analysis if background analysis module is available
         # A missing analysis module is a deployment failure, not silent success.
-        from backend.analysis import run_analysis
-        background_tasks.add_task(run_analysis, sub.id)
+        from backend.worker_mode import remote_mode
+        if not remote_mode():
+            from backend.analysis import run_analysis
+            background_tasks.add_task(run_analysis, sub.id)
 
     return {
         "status": "received",

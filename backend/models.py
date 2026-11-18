@@ -120,6 +120,11 @@ class Submission(Base):
     # These are UTC-naive like existing created_at values.
     analysis_started_at = Column(DateTime, nullable=True)
     analysis_finished_at = Column(DateTime, nullable=True)
+    # Remote worker lease: nullable, ignored by localhost inference mode.
+    worker_claim_hash = Column(String(64), nullable=True)
+    worker_claimed_by = Column(String(64), nullable=True)
+    worker_lease_expires_at = Column(DateTime, nullable=True)
+    worker_attempts = Column(Integer, nullable=False, default=0, server_default="0")
 
     # Relationships
     lobby = relationship("Lobby", back_populates="submissions")
@@ -150,3 +155,12 @@ class EmailVerificationToken(Base):
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WorkerHeartbeat(Base):
+    """Only non-secret liveness metadata; worker bearer credentials are never stored."""
+    __tablename__ = "worker_heartbeats"
+
+    worker_id = Column(String(64), primary_key=True)
+    last_seen_at = Column(DateTime, nullable=False)
+    started_at = Column(DateTime, nullable=False)

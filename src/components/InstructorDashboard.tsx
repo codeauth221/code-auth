@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { Instructor, Language, Lobby, RiskLevel, Submission, Theme } from '../types';
 import { CodeModal } from './CodeModal';
+import { RemoteWorkerStatusBanner } from './RemoteWorkerStatusBanner';
 import { formatPhilippineDateTime, formatPhilippineTime } from '../utils/dateTime';
 
 /** Duration is measured by backend status-transition timestamps (not a simulated progress percentage). */
@@ -867,6 +868,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                     </button>
                   </div>
                 </div>
+
+                <RemoteWorkerStatusBanner />
 
                 {unfinishedCount > 0 && (
                   <div

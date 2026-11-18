@@ -1,31 +1,80 @@
 {
-  "name": "CodeAuthentic student closed-lobby experience",
-  "based_on": "CodeAuthentic_Lobby_Reopen_Premium_Buttons_Fix.zip + most recent StudentDashboard.tsx & CSS",
+  "source_archive": "CodeAuthentic_Remote_Worker_Source_20261118_150836.zip",
   "files": [
     {
-      "path": "backend/schemas.py",
-      "expected_old_sha256": "3e82d0075b3c143bdd1bd767575f5f27860cc3541f761b9a5f29c481929fb955",
-      "new_sha256": "f23df4bb78b25fd8775ebfcebc5c3c737fffb64543b37c5e4134e9598e9a1028"
+      "path": "backend/models.py",
+      "original_sha256": "228c5ada321bd374474ab52ec6119fe4a00a1fac1bf8d93c0bdaaa5d77ba5e26",
+      "new_sha256": "4b7651d103a0518a06a15ccab7e537404fc703685573f5b35bc15f80769dd415"
     },
     {
-      "path": "backend/routes/lobbies.py",
-      "expected_old_sha256": "98b64e365d42cc032add78cc48bc6c7d6b8d2ed3d00a8ed7f2591fb78edc8c0f",
-      "new_sha256": "9841be5ebf167948cd8442c4afa0168c4ff0c5595a499ff469d96bc4c9b872de"
+      "path": "backend/database.py",
+      "original_sha256": "a7aa6c2b2ead04f5981efe21035819cbccb592d34f6cde01c89a5dcb7d049ba1",
+      "new_sha256": "49387bada99532b02146641aa4d625c96c297c4172c56c323435b50784beaad5"
+    },
+    {
+      "path": "backend/analysis.py",
+      "original_sha256": "0a0d2662cb86938f58e60fa16068df5b052123622abf17fa1d3122ab20e53c83",
+      "new_sha256": "79369114ffcb252989908dd054ce6f7f1589b21ad8460faa1013cc3a5d93b7ca"
+    },
+    {
+      "path": "backend/routes/submissions.py",
+      "original_sha256": "00a17eed874ec17d0256dff4b68cd56a0a83a836781b28d42c5486c1145c1d6c",
+      "new_sha256": "f2d7fa34e262ccc4f2e1947fb78c64bb7dcff7c0134e6126bd78d3160cf8ab1b"
+    },
+    {
+      "path": "backend/main.py",
+      "original_sha256": "fbd3f7d347faba1e0c2bf15f20d2f17784778fc9cb49ee4f4b3a8cad3d59d2d2",
+      "new_sha256": "2e56afe19b39cb6cef56799967ace2e93f1b2956709133330d05c51488bbd6a1"
     },
     {
       "path": "src/utils/api.ts",
-      "expected_old_sha256": "bec45e21cdd7d43adeb7f2f8751af881012b400de8cf763a0255ed833858c6c1",
-      "new_sha256": "3d769da7a3d385cec0767d6b6f5aa14a3ab29efe42dc65b3fb03f2c935a09788"
+      "original_sha256": "3d769da7a3d385cec0767d6b6f5aa14a3ab29efe42dc65b3fb03f2c935a09788",
+      "new_sha256": "235f887e66d3faba92fdaf8b1f1c9851954f4cea90dacc43fa52b4c29b687b2f"
     },
     {
-      "path": "src/components/StudentDashboard.tsx",
-      "expected_old_sha256": "e2b58c8d42297365a8d0e18d877cabc20b3c79c576a5c9dbde80f20eddd19b03",
-      "new_sha256": "d1d842dc71d870cfd76cda9b676512f2fd6151eb455ca7c4d901e75472c0a93c"
+      "path": "src/components/InstructorDashboard.tsx",
+      "original_sha256": "da7001720c2dced5ff83ee741664305d4f775ca69ebb4d3c8bce55d93ee455f5",
+      "new_sha256": "5c736b43b60f780b169e41c19895b7ce9a769d9711c3e14cc01240f914d81e96"
     },
     {
-      "path": "src/components/StudentDashboardPremium.css",
-      "expected_old_sha256": "5954ffde647ac9e3a15e70400e5da13cdceeb6780fd53e1473e0bf1ddfdc1cdf",
-      "new_sha256": "cce255c34f24a5d7820abd961c78df835fedb0902af525d7a8ca84688c8bcdd3"
+      "path": "backend/routes/worker.py",
+      "original_sha256": null,
+      "new_sha256": "cccb08f7c84504d3b3f9e1c72de9a83311658f7216a4dad47a381f3cd45af70c"
+    },
+    {
+      "path": "backend/worker_mode.py",
+      "original_sha256": null,
+      "new_sha256": "46684f5a737ac01380ccdfd6d7f0f0854d1d059c29afbb3940ee443d31f9ef2d"
+    },
+    {
+      "path": "ml/remote_worker.py",
+      "original_sha256": null,
+      "new_sha256": "c498070c618e2e8a081b1c6b83d6c8e5fe98c596d3457be62fee1ecfefa8322b"
+    },
+    {
+      "path": "START_AI_WORKER.bat",
+      "original_sha256": null,
+      "new_sha256": "c0f68c1bf2412e2316fc771f743b60c38fd119f9d54b604ac9d248a3624a141d"
+    },
+    {
+      "path": "WORKER_SETTINGS.example.txt",
+      "original_sha256": null,
+      "new_sha256": "5b265f68e7ba5b1acdd5cb1c9ec7efdf1341a974f0334e8e58ac934b84902cbb"
+    },
+    {
+      "path": "src/components/RemoteWorkerStatusBanner.tsx",
+      "original_sha256": null,
+      "new_sha256": "dca64df98ee462caaf9d621fa8649b3405600113b3e8b48d8f58c83f7bbe2eb8"
+    },
+    {
+      "path": "tests/test_remote_worker_queue.py",
+      "original_sha256": null,
+      "new_sha256": "3cad0b095fbfd704e370feb9e211e5c4d2b465129630757355a3542e5c43a5f5"
+    },
+    {
+      "path": "README_REMOTE_WORKER.md",
+      "original_sha256": null,
+      "new_sha256": "77d32f88b38fe1539aa0e54edbb0515da4979c37d6d179a960bde003b86e56c7"
     }
   ]
 }
