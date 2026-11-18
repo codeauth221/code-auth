@@ -319,3 +319,88 @@
 @media (prefers-reduced-motion: reduce) {
   .ca-student-workspace *, .ca-student-workspace *::before, .ca-student-workspace *::after { animation: none !important; transition: none !important; }
 }
+
+
+/* Closed exam session: an intentional full-page replacement for the upload form. */
+.ca-student-workspace--closed { max-width: 920px; padding-top: clamp(16px, 6vh, 68px); padding-bottom: 42px; }
+.ca-student-closed-panel {
+  position: relative; isolation: isolate; overflow: hidden; width: 100%;
+  padding: clamp(27px, 6vw, 68px); border-radius: 28px;
+  background: var(--student-card); color: var(--ca-ink);
+  border: 1px solid color-mix(in srgb, var(--ca-border) 80%, transparent);
+  box-shadow: 0 24px 70px rgba(29, 23, 23, .14), inset 0 1px 0 rgba(255,255,255,.08);
+  text-align: center;
+}
+.ca-student-closed-shine {
+  position: absolute; z-index: -1; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 65% 42% at 50% -14%, color-mix(in srgb, var(--ca-brand) 17%, transparent), transparent 85%);
+}
+.ca-student-closed-icon {
+  width: 85px; height: 85px; border-radius: 25px; display: grid; place-items: center;
+  margin: 0 auto 19px; color: var(--ca-brand); background: var(--ca-brand-soft);
+  border: 1px solid color-mix(in srgb, var(--ca-brand) 31%, transparent);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--ca-brand) 12%, transparent);
+}
+.ca-student-closed-label { color: var(--ca-muted); font-size: 10px; font-weight: 850; letter-spacing: .17em; }
+.ca-student-closed-pill {
+  display: inline-flex; gap: 8px; align-items: center; margin: 15px auto 0;
+  border: 1px solid color-mix(in srgb, var(--ca-brand) 25%, transparent);
+  background: var(--ca-brand-soft); color: var(--ca-brand);
+  padding: 7px 13px; border-radius: 100px; font-size: 11px; font-weight: 850;
+}
+.ca-student-closed-pill > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ca-student-closed-panel h1 {
+  margin: 16px auto 0; max-width: 650px; font-family: var(--font-display);
+  font-size: clamp(27px, 4vw, 43px); letter-spacing: -.045em; line-height: 1.12;
+  font-weight: 850; color: var(--ca-ink);
+}
+.ca-student-closed-description {
+  max-width: 605px; margin: 15px auto 0; color: var(--ca-muted);
+  font-size: clamp(13px, 1.8vw, 15px); line-height: 1.75;
+}
+.ca-student-closed-info {
+  display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px;
+  max-width: 720px; margin: 30px auto 0; text-align: left;
+}
+.ca-student-closed-info:has(> div:only-child) { grid-template-columns: 1fr; }
+.ca-student-closed-info > div {
+  border: 1px solid var(--student-line); background: var(--student-inner);
+  border-radius: 15px; padding: 16px 18px; min-width: 0;
+}
+.ca-student-closed-info span { display: flex; align-items: center; gap: 6px; color: var(--ca-faint); font-size: 10px; font-weight: 800; letter-spacing: .09em; }
+.ca-student-closed-info strong { display: block; margin-top: 8px; font-size: 14px; color: var(--ca-ink); line-height: 1.45; overflow-wrap: anywhere; }
+.ca-student-closed-info small { display: block; margin-top: 3px; color: var(--ca-muted); font-size: 11px; }
+.ca-student-closed-guidance {
+  display: flex; text-align: left; align-items: flex-start; gap: 12px; max-width: 720px;
+  margin: 15px auto 0; padding: 17px 18px; border-radius: 15px;
+  background: var(--ca-brand-soft); border: 1px solid color-mix(in srgb, var(--ca-brand) 20%, transparent);
+}
+.ca-student-closed-guidance > svg { color: var(--ca-brand); flex: none; margin-top: 1px; }
+.ca-student-closed-guidance strong { font-size: 13px; color: var(--ca-ink); }
+.ca-student-closed-guidance p { margin: 5px 0 0; font-size: 12px; color: var(--ca-muted); line-height: 1.65; }
+.ca-student-closed-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 25px; }
+.ca-student-closed-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 12px; font-weight: 800; font-size: 12px; padding: 14px 20px;
+  min-height: 47px; transition: transform .2s ease, background .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.ca-student-closed-check { background: linear-gradient(120deg, #ee7136, #c64a19); color: white; border: 1px solid rgba(255,148,85,.65); box-shadow: 0 8px 24px rgba(192,62,10,.22); }
+.ca-student-closed-check:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 13px 30px rgba(192,62,10,.3); }
+.ca-student-closed-other { background: var(--student-inner); color: var(--ca-ink); border: 1px solid var(--ca-border); }
+.ca-student-closed-other:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--ca-brand); box-shadow: 0 10px 23px rgba(0,0,0,.07); }
+.ca-student-closed-actions button:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.ca-student-closed-actions button:disabled { opacity: .6; }
+.ca-student-closed-refresh { display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--ca-faint); font-size: 11px; margin: 19px 0 0; line-height: 1.5; }
+.ca-student-closed-refresh svg { flex: none; color: var(--ca-ok); }
+.ca-student-closed-error { margin: 15px 0 0; color: var(--ca-danger); font-size: 12px; }
+@media (max-width: 640px) {
+  .ca-student-workspace--closed { padding: 6px 0 25px; }
+  .ca-student-closed-panel { padding: 31px 19px; border-radius: 19px; }
+  .ca-student-closed-icon { width: 67px; height: 67px; border-radius: 21px; }
+  .ca-student-closed-info { grid-template-columns: minmax(0, 1fr); margin-top: 23px; }
+  .ca-student-closed-actions { flex-direction: column; }
+  .ca-student-closed-actions button { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-student-closed-actions button { transition: none; }
+}

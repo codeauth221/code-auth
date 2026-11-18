@@ -63,6 +63,39 @@ function analysisClock(sub: Submission, nowMs: number): string | null {
   return sub.status === 'done' ? `Worked for ${worked}` : `Stopped after ${worked}`;
 }
 
+/** Only the visible duration label ticks. Never re-render the entire 70KB
+ * instructor dashboard, its charts, and both result layouts every second. */
+const AnalysisTiming = React.memo(function AnalysisTiming({
+  submission,
+  className,
+  missingClassName,
+}: {
+  submission: Submission;
+  className: string;
+  missingClassName?: string;
+}) {
+  const isRunning = submission.status === 'pending' || submission.status === 'analyzing';
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isRunning) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [isRunning, submission.status, submission.analysisStartedAt, submission.submittedAt]);
+
+  const label = analysisClock(submission, nowMs);
+  if (label) {
+    return <span className={className} title="Server-recorded processing time; queued time is shown separately">{label}</span>;
+  }
+  if (submission.status === 'done') {
+    return <span className={missingClassName ?? className} title="No analysis timestamps were saved for this record.">Duration not recorded</span>;
+  }
+  return null;
+});
+
+// Restrained, theme-aware microinteractions for lobby actions. No layout-shifting animations.
+const premiumLobbyAction = 'group inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer select-none transition-[transform,box-shadow,background-color,border-color,color,filter] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(0,0,0,0.12)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ca-brand focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none motion-reduce:transform-none motion-reduce:transition-colors';
+
 type InstructorSection = 'dashboard' | 'lobbies' | 'submissions';
 
 interface InstructorDashboardProps {
@@ -77,9 +110,11 @@ interface InstructorDashboardProps {
     maxStudents: number;
   }) => Promise<Lobby>;
   onToggleLock: (lobbyId: string) => Promise<void>;
+  onExtendAndReopen: (lobbyId: string, durationMinutes: number) => Promise<void>;
   onDeleteLobby: (lobbyId: string) => Promise<void>;
   onSwitchToStudentView: (lobbyCode: string) => void;
   onRefresh: () => Promise<void>;
+  onActiveLobbyChange: (lobbyId: string | null) => void;
   onLoadSubmissionCode: (submission: Submission) => Promise<{ sourceCode: string; tokenCount: number | null }>;
   errorMessage: string | null;
   theme: Theme;
@@ -93,9 +128,11 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   submissions,
   onCreateLobby,
   onToggleLock,
+  onExtendAndReopen,
   onDeleteLobby,
   onSwitchToStudentView,
   onRefresh,
+  onActiveLobbyChange,
   onLoadSubmissionCode,
   errorMessage,
 }) => {
@@ -105,21 +142,15 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   );
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDatasetModal, setShowDatasetModal] = useState(false);
-  // One lightweight ticker for the entire table, only active while jobs run.
-  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
-  const hasRunningJobs = submissions.some((sub) => sub.status === 'pending' || sub.status === 'analyzing');
-  useEffect(() => {
-    if (!hasRunningJobs) return;
-    setClockNowMs(Date.now());
-    const ticker = window.setInterval(() => setClockNowMs(Date.now()), 1000);
-    return () => window.clearInterval(ticker);
-  }, [hasRunningJobs]);
   const [inspectedSubmission, setInspectedSubmission] = useState<Submission | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingLobbyId, setDeletingLobbyId] = useState<string | null>(null);
   const [updatingLobbyId, setUpdatingLobbyId] = useState<string | null>(null);
+  const [extendLobbyId, setExtendLobbyId] = useState<string | null>(null);
+  const [extendMinutes, setExtendMinutes] = useState(60);
+  const [extendError, setExtendError] = useState<string | null>(null);
 
   const [subject, setSubject] = useState('');
   const [title, setTitle] = useState('');
@@ -135,6 +166,17 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   const lobbyMenuRef = useRef<HTMLDivElement>(null);
 
   const activeLobby = lobbies.find((l) => l.id === selectedLobbyId) || lobbies[0];
+  // Derive expiry from server UTC timestamps, regardless of the stored LOCKED label.
+  // Database status remains backwards-compatible: ACTIVE or LOCKED only.
+  const isExpired = (lobby: Lobby): boolean => {
+    const time = Date.parse(lobby.expiresAt);
+    return Number.isFinite(time) && time <= Date.now();
+  };
+  const activeLobbyExpired = activeLobby ? isExpired(activeLobby) : false;
+  const extendLobby = lobbies.find((lobby) => lobby.id === extendLobbyId) || null;
+  useEffect(() => {
+    onActiveLobbyChange(activeLobby?.id ?? null);
+  }, [activeLobby?.id, onActiveLobbyChange]);
 
   useEffect(() => {
     if (!lobbyMenuOpen) return;
@@ -164,6 +206,23 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   const analyzingCount = lobbySubmissions.filter((sub) => sub.status === 'analyzing').length;
   const queuedCount = lobbySubmissions.filter((sub) => sub.status === 'pending').length;
   const unfinishedCount = analyzingCount + queuedCount;
+  const firstUnfinishedSubmission = lobbySubmissions.find(
+    (sub) => sub.status === 'analyzing' || sub.status === 'pending',
+  );
+  // Keep the latest completed result visible when the processing banner closes.
+  // The elapsed duration is calculated only from saved server timestamps.
+  const latestCompletedSubmission = lobbySubmissions
+    .filter((sub) => sub.status === 'done')
+    .reduce<Submission | null>((latest, sub) => {
+      if (!latest) return sub;
+      const candidateTime = Date.parse(sub.submittedAt);
+      const latestTime = Date.parse(latest.submittedAt);
+      return Number.isFinite(candidateTime) && (!Number.isFinite(latestTime) || candidateTime > latestTime)
+        ? sub : latest;
+    }, null);
+  const latestCompletedTime = latestCompletedSubmission
+    ? analysisClock(latestCompletedSubmission, Date.now())
+    : null;
 
   const displayedSubmissions = lobbySubmissions.filter((sub) => {
     const matchesSearch =
@@ -249,11 +308,37 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
   const handleToggleActiveLobby = async () => {
     if (!activeLobby || updatingLobbyId || deletingLobbyId) return;
     setActionError(null);
+    if (isExpired(activeLobby)) {
+      setExtendError(null);
+      setExtendMinutes(60);
+      setExtendLobbyId(activeLobby.id);
+      return;
+    }
     setUpdatingLobbyId(activeLobby.id);
     try {
       await onToggleLock(activeLobby.id);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Unable to update the lobby.');
+    } finally {
+      setUpdatingLobbyId(null);
+    }
+  };
+
+  const handleExtendLobby = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!extendLobby || updatingLobbyId || deletingLobbyId) return;
+    if (!Number.isInteger(extendMinutes) || extendMinutes < 10 || extendMinutes > 1440) {
+      setExtendError('Choose a whole number of minutes between 10 and 1440.');
+      return;
+    }
+    setExtendError(null);
+    setUpdatingLobbyId(extendLobby.id);
+    try {
+      await onExtendAndReopen(extendLobby.id, extendMinutes);
+      setActionError(null);
+      setExtendLobbyId(null);
+    } catch (error) {
+      setExtendError(error instanceof Error ? error.message : 'Could not extend this lobby.');
     } finally {
       setUpdatingLobbyId(null);
     }
@@ -326,7 +411,11 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
     }`;
 
   const selectLobby = (lobbyId: string) => {
+    if (activeLobby?.id === lobbyId) return;
     setSelectedLobbyId(lobbyId);
+    // Other lobbies are updated by fallback polling, so fetch once when the
+    // instructor explicitly switches to one that was not being observed.
+    void onRefresh();
   };
 
   return (
@@ -435,7 +524,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
               ) : (
                 <div className="grid sm:grid-cols-2 gap-3">
                   {lobbies.slice(0, 4).map((lobby) => {
-                    const isLocked = lobby.status === 'LOCKED';
+                    const expired = isExpired(lobby);
+                    const isLocked = lobby.status === 'LOCKED' || expired;
                     return (
                       <button
                         key={lobby.id}
@@ -458,7 +548,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                               isLocked ? 'bg-ca-bg-elevated text-ca-muted' : 'bg-ca-ok-soft text-ca-ok'
                             }`}
                           >
-                            {lobby.status}
+                            {expired ? 'EXPIRED' : lobby.status}
                           </span>
                         </div>
                         <p className="text-xs text-ca-muted mt-1.5 line-clamp-1">{lobby.title}</p>
@@ -503,7 +593,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                 <h1 className="ca-screen-title font-display">Examination lobbies<span className="ca-title-dot">.</span></h1>
                 <p className="ca-screen-subtitle">Create sessions, share access links, and manage examination entry.</p>
               </div>
-              <button type="button" onClick={() => setShowCreateModal(true)} className="ca-hero-primary-action self-start sm:self-auto">
+              <button type="button" onClick={() => setShowCreateModal(true)} className="ca-hero-primary-action self-start sm:self-auto transition-[transform,box-shadow,filter] duration-200 ease-out hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ca-brand motion-reduce:transform-none">
                 <Plus className="w-4 h-4" /><span>New lobby</span>
               </button>
             </div>
@@ -519,7 +609,8 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                   ) : (
                     lobbies.map((lobby) => {
                       const isSelected = activeLobby && activeLobby.id === lobby.id;
-                      const isLocked = lobby.status === 'LOCKED';
+                      const expired = isExpired(lobby);
+                      const isLocked = lobby.status === 'LOCKED' || expired;
                       const subCount = submissions.filter((s) => s.lobbyId === lobby.id).length;
 
                       return (
@@ -547,7 +638,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                                   : 'bg-ca-ok-soft text-ca-ok'
                               }`}
                             >
-                              {lobby.status}
+                              {expired ? 'EXPIRED' : lobby.status}
                             </span>
                           </div>
                           <p className="text-xs text-ca-muted mt-1.5 line-clamp-1">{lobby.title}</p>
@@ -574,12 +665,12 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                             </span>
                             <span
                               className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md ${
-                                activeLobby.status === 'ACTIVE'
+                                activeLobby.status === 'ACTIVE' && !activeLobbyExpired
                                   ? 'bg-ca-ok-soft text-ca-ok'
                                   : 'bg-ca-bg-elevated text-ca-muted'
                               }`}
                             >
-                              {activeLobby.status}
+                              {activeLobbyExpired ? 'EXPIRED' : activeLobby.status}
                             </span>
                           </div>
                           <h2 className="text-2xl font-bold font-display text-ca-ink leading-tight">
@@ -587,19 +678,24 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                           </h2>
                           <p className="text-sm text-ca-muted">{activeLobby.title}</p>
                           <p className="text-xs text-ca-faint">Up to 3 uploads per student</p>
+                          {activeLobbyExpired && (
+                            <p className="text-xs text-ca-warn" role="status">
+                              Expired {formatPhilippineDateTime(activeLobby.expiresAt)} PHT. Extend the exam window to accept new uploads.
+                            </p>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full sm:w-auto">
                           <button
                             onClick={handleCopyCode}
-                            className="px-3 py-2 rounded-xl bg-ca-surface-2 hover:bg-ca-surface-hover text-ca-ink border border-ca-border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className={`${premiumLobbyAction} bg-ca-surface-2 hover:bg-ca-surface-hover text-ca-ink border-ca-border hover:border-ca-border-strong`}
                           >
                             {copiedCode ? <Check className="w-3.5 h-3.5 text-ca-ok" /> : <Copy className="w-3.5 h-3.5 text-ca-brand" />}
                             <span>{copiedCode ? 'Copied' : 'Copy code'}</span>
                           </button>
                           <button
                             onClick={handleCopyLink}
-                            className="px-3 py-2 rounded-xl bg-ca-surface-2 hover:bg-ca-surface-hover text-ca-ink border border-ca-border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className={`${premiumLobbyAction} bg-ca-surface-2 hover:bg-ca-surface-hover text-ca-ink border-ca-border hover:border-ca-border-strong`}
                           >
                             {copiedLink ? <Check className="w-3.5 h-3.5 text-ca-ok" /> : <ExternalLink className="w-3.5 h-3.5 text-ca-brand" />}
                             <span>{copiedLink ? 'Copied' : 'Copy link'}</span>
@@ -607,18 +703,23 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                           <button
                             onClick={() => void handleToggleActiveLobby()}
                             disabled={updatingLobbyId !== null || deletingLobbyId !== null}
-                            className={`disabled:opacity-50 disabled:cursor-wait px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-                              activeLobby.status === 'ACTIVE'
-                                ? 'bg-ca-danger-soft text-ca-danger border-transparent'
-                                : 'bg-ca-ok-soft text-ca-ok border-transparent'
+                            className={`${premiumLobbyAction} ${
+                              activeLobby.status === 'ACTIVE' && !activeLobbyExpired
+                                ? 'bg-ca-danger-soft text-ca-danger border-transparent hover:brightness-105'
+                                : 'bg-ca-ok-soft text-ca-ok border-transparent hover:brightness-105'
                             }`}
                           >
                             {updatingLobbyId === activeLobby.id ? (
                               <span>Updating...</span>
-                            ) : activeLobby.status === 'ACTIVE' ? (
+                            ) : activeLobby.status === 'ACTIVE' && !activeLobbyExpired ? (
                               <>
                                 <Lock className="w-3.5 h-3.5" />
                                 <span>Lock</span>
+                              </>
+                            ) : activeLobbyExpired ? (
+                              <>
+                                <Unlock className="w-3.5 h-3.5" />
+                                <span>Extend &amp; Reopen</span>
                               </>
                             ) : (
                               <>
@@ -632,7 +733,7 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                             onClick={() => void handleDeleteActiveLobby()}
                             disabled={deletingLobbyId !== null || updatingLobbyId !== null}
                             title="Delete lobby and all its submissions"
-                            className="px-3 py-2 rounded-xl bg-ca-danger-soft text-ca-danger border border-transparent text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                            className={`${premiumLobbyAction} bg-ca-danger-soft text-ca-danger border-transparent hover:brightness-105`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>{deletingLobbyId === activeLobby.id ? 'Deleting...' : 'Delete lobby'}</span>
@@ -789,15 +890,30 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                           : 'Waiting for the backend to begin analysis. Results will appear automatically.'}
                         {analyzingCount > 0 && queuedCount > 0 ? ` ${queuedCount} queued.` : ''}
                       </p>
-                      <p className="mt-1 text-xs font-mono font-semibold text-ca-brand" aria-label="Elapsed analysis time">
-                        {lobbySubmissions.filter(sub => sub.status === 'analyzing' || sub.status === 'pending')
-                          .slice(0, 1).map(sub => analysisClock(sub, clockNowMs)).join('')}
-                      </p>
+                      {firstUnfinishedSubmission && (
+                        <AnalysisTiming submission={firstUnfinishedSubmission}
+                          className="block mt-1 text-xs font-mono font-semibold text-ca-brand" />
+                      )}
                     </div>
                     <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-ca-surface/75 px-2.5 py-1 text-[11px] font-semibold text-ca-brand sm:self-center">
                       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-ca-brand animate-pulse motion-reduce:animate-none" />
                       Auto-refreshing
                     </span>
+                  </div>
+                )}
+
+                {/* A completed result remains visible after the active spinner disappears. */}
+                {unfinishedCount === 0 && latestCompletedSubmission && (
+                  <div role="status" className="flex items-start gap-3 rounded-xl border border-ca-ok/25 bg-ca-ok-soft px-3.5 py-3 sm:px-4">
+                    <CircleCheck aria-hidden="true" className="h-5 w-5 shrink-0 mt-0.5 text-ca-ok" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-ca-ink">Latest CodeBERT analysis completed</p>
+                      <p className="mt-1 text-xs text-ca-muted break-words">
+                        <span className="font-mono">{latestCompletedSubmission.fileName}</span>
+                        <span className="mx-1.5" aria-hidden="true">·</span>
+                        {latestCompletedTime ?? 'Processing duration not recorded for this submission'}
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -882,11 +998,9 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                                   ) : (
                                     <span className="text-xs text-ca-muted" title={sub.errorMessage}>—</span>
                                   )}
-                                  {analysisClock(sub, clockNowMs) && (
-                                    <span className="block text-[11px] font-mono text-ca-muted whitespace-nowrap" title="Server-recorded processing time; queued time is shown separately">
-                                      {analysisClock(sub, clockNowMs)}
-                                    </span>
-                                  )}
+                                  <AnalysisTiming submission={sub}
+                                    className="block text-[11px] font-mono text-ca-muted whitespace-nowrap"
+                                    missingClassName="block text-[11px] text-ca-faint" />
                                 </div>
                               </td>
                               <td className="py-3 px-4">
@@ -1000,11 +1114,9 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
                             </p>
                           </div>
                         </div>
-                        {analysisClock(sub, clockNowMs) && (
-                          <p className="text-xs font-mono font-medium text-ca-muted" title="Server-recorded processing time; queued time is shown separately">
-                            {analysisClock(sub, clockNowMs)}
-                          </p>
-                        )}
+                        <AnalysisTiming submission={sub}
+                          className="block text-xs font-mono font-medium text-ca-muted"
+                          missingClassName="block text-xs text-ca-faint" />
                         <button type="button" onClick={() => setInspectedSubmission(sub)}
                           className="w-full min-h-10 inline-flex items-center justify-center gap-2 rounded-lg border border-ca-border bg-ca-surface hover:bg-ca-brand hover:text-ca-brand-ink text-ca-ink text-xs font-semibold transition-colors">
                           <Eye className="w-4 h-4" /> Inspect code
@@ -1034,6 +1146,44 @@ export const InstructorDashboard: React.FC<InstructorDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {extendLobby && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-ca-overlay backdrop-blur-sm ca-fade-in">
+          <div role="dialog" aria-modal="true" aria-labelledby="extend-lobby-heading" className="relative w-full max-w-lg max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-2xl sm:rounded-3xl border border-ca-border bg-ca-bg p-4 sm:p-8 space-y-5 ca-scroll">
+            <div className="flex items-start justify-between gap-3 border-b border-ca-border pb-4">
+              <div>
+                <h3 id="extend-lobby-heading" className="text-lg font-black text-ca-ink">Extend &amp; Reopen Lobby</h3>
+                <p className="text-xs text-ca-muted mt-1">{extendLobby.subject} · {extendLobby.title || extendLobby.code}</p>
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setExtendLobbyId(null)} disabled={updatingLobbyId !== null}
+                className="p-2 rounded-xl text-ca-muted hover:text-ca-ink hover:bg-ca-bg-elevated hover:rotate-90 transition-[background-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ca-brand disabled:opacity-50 disabled:hover:rotate-0 motion-reduce:transform-none">✕</button>
+            </div>
+            <p className="text-sm text-ca-muted">
+              The previous session expired {formatPhilippineDateTime(extendLobby.expiresAt)} PHT.
+              Choose a fresh duration starting now. The lobby code, existing students, files, and analysis results will be preserved.
+            </p>
+            <form onSubmit={(event) => void handleExtendLobby(event)} className="space-y-4">
+              {extendError && <p role="alert" className="rounded-xl border border-ca-border bg-ca-danger-soft px-3.5 py-3 text-sm text-ca-danger">{extendError}</p>}
+              <label htmlFor="extend-lobby-minutes" className="block text-xs font-bold uppercase tracking-wider text-ca-muted">New exam window (minutes)</label>
+              <input id="extend-lobby-minutes" type="number" required min={10} max={1440} step={1}
+                value={extendMinutes} onChange={(event) => setExtendMinutes(Number(event.target.value))}
+                className="w-full px-4 py-2.5 rounded-xl bg-ca-surface-2 border border-ca-border text-ca-ink text-sm focus:outline-none focus:border-ca-brand" />
+              <p className="text-xs text-ca-faint">10–1440 minutes (up to 24 hours). Students can submit again while this window is active, subject to the existing 3-files-per-student limit.</p>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" disabled={updatingLobbyId !== null} onClick={() => setExtendLobbyId(null)}
+                  className={`${premiumLobbyAction} px-5 bg-ca-surface-2 text-ca-ink border-ca-border hover:bg-ca-surface-hover hover:border-ca-border-strong`}>Cancel</button>
+                <button type="submit" disabled={updatingLobbyId !== null}
+                  aria-busy={updatingLobbyId === extendLobby.id}
+                  className={`${premiumLobbyAction} px-5 bg-ca-brand text-ca-brand-ink border-transparent shadow-[0_8px_20px_rgba(207,82,21,0.20)] hover:brightness-110 hover:shadow-[0_12px_26px_rgba(207,82,21,0.26)]`}>
+                  {updatingLobbyId === extendLobby.id ? (
+                    <><LoaderCircle aria-hidden="true" className="w-4 h-4 animate-spin motion-reduce:animate-none" /> Reopening...</>
+                  ) : 'Confirm & Reopen'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-ca-overlay backdrop-blur-sm ca-fade-in">

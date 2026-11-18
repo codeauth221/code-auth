@@ -1,0 +1,31 @@
+{
+  "name": "CodeAuthentic student closed-lobby experience",
+  "based_on": "CodeAuthentic_Lobby_Reopen_Premium_Buttons_Fix.zip + most recent StudentDashboard.tsx & CSS",
+  "files": [
+    {
+      "path": "backend/schemas.py",
+      "expected_old_sha256": "3e82d0075b3c143bdd1bd767575f5f27860cc3541f761b9a5f29c481929fb955",
+      "new_sha256": "f23df4bb78b25fd8775ebfcebc5c3c737fffb64543b37c5e4134e9598e9a1028"
+    },
+    {
+      "path": "backend/routes/lobbies.py",
+      "expected_old_sha256": "98b64e365d42cc032add78cc48bc6c7d6b8d2ed3d00a8ed7f2591fb78edc8c0f",
+      "new_sha256": "9841be5ebf167948cd8442c4afa0168c4ff0c5595a499ff469d96bc4c9b872de"
+    },
+    {
+      "path": "src/utils/api.ts",
+      "expected_old_sha256": "bec45e21cdd7d43adeb7f2f8751af881012b400de8cf763a0255ed833858c6c1",
+      "new_sha256": "3d769da7a3d385cec0767d6b6f5aa14a3ab29efe42dc65b3fb03f2c935a09788"
+    },
+    {
+      "path": "src/components/StudentDashboard.tsx",
+      "expected_old_sha256": "e2b58c8d42297365a8d0e18d877cabc20b3c79c576a5c9dbde80f20eddd19b03",
+      "new_sha256": "d1d842dc71d870cfd76cda9b676512f2fd6151eb455ca7c4d901e75472c0a93c"
+    },
+    {
+      "path": "src/components/StudentDashboardPremium.css",
+      "expected_old_sha256": "5954ffde647ac9e3a15e70400e5da13cdceeb6780fd53e1473e0bf1ddfdc1cdf",
+      "new_sha256": "cce255c34f24a5d7820abd961c78df835fedb0902af525d7a8ca84688c8bcdd3"
+    }
+  ]
+}

@@ -71,6 +71,8 @@ interface ApiPublicLobby {
   subject: string;
   title: string;
   language: Language;
+  closed_reason?: 'expired' | 'instructor_locked' | null;
+  expires_at?: string | null;
 }
 
 async function request<T>(
@@ -433,6 +435,35 @@ export async function setLobbyLocked(
     token,
   );
   return mapLobby(updated);
+}
+
+/** Explicitly start a fresh exam window for an expired, instructor-owned lobby. */
+export async function extendAndReopenLobby(
+  token: string,
+  lobbyId: string,
+  durationMinutes: number,
+): Promise<Lobby> {
+  try {
+    const updated = await request<ApiLobby>(
+      `/lobbies/${encodeURIComponent(lobbyId)}/extend-and-reopen`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration_minutes: durationMinutes }),
+      },
+      token,
+    );
+    return mapLobby(updated);
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404 &&
+        /^(not found|the backend api endpoint was not found)/i.test(error.message.trim())) {
+      throw new ApiRequestError(
+        'The running FastAPI server does not expose Extend & Reopen. Close the old backend, restart START_SYSTEM.bat, and verify the POST /lobbies/{lobby_id}/extend-and-reopen route in http://127.0.0.1:8000/docs. Also verify the frontend uses the local API.',
+        404,
+      );
+    }
+    throw error;
+  }
 }
 
 export async function deleteLobby(token: string, lobbyId: string): Promise<void> {

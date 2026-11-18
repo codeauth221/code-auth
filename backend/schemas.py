@@ -114,6 +114,11 @@ class LobbyCreate(BaseModel):
     max_students: int = Field(default=35, ge=1, le=150)
 
 
+class LobbyExtendRequest(BaseModel):
+    """Additional exam window starting when the instructor reopens an expired lobby."""
+    duration_minutes: int = Field(..., ge=10, le=1440, strict=True)
+
+
 class LobbyResponse(BaseModel):
     id: uuid.UUID
     instructor_id: int
@@ -152,3 +157,10 @@ class LobbyPublicStatus(BaseModel):
     subject: str = ""
     title: str
     language: Literal["c", "java", "python"]
+    # Public status only; no instructor identity, student data, or analysis scores.
+    closed_reason: Optional[Literal["expired", "instructor_locked"]] = None
+    expires_at: datetime
+
+    @field_serializer("expires_at", when_used="json")
+    def serialize_public_expiry(self, value: datetime) -> str:
+        return utc_isoformat(value)

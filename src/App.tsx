@@ -9,6 +9,7 @@ import {
   clearAuthSession,
   createLobby as createRemoteLobby,
   deleteLobby as deleteRemoteLobby,
+  extendAndReopenLobby as extendRemoteLobby,
   getAuthToken,
   getSubmissionCode,
   getSavedInstructor,
@@ -32,6 +33,7 @@ export default function App() {
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const refreshQueuedRef = useRef(false);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [observedLobbyId, setObservedLobbyId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'instructor' | 'student'>('home');
   const [instructor, setInstructor] = useState<Instructor | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -107,38 +109,59 @@ export default function App() {
     return !Number.isFinite(submittedAt) || Date.now() - submittedAt < 10 * 60_000;
   });
 
-  // Fetch on login once. WebSocket notifications refresh the live view;
-  // polling slows down while a socket is healthy, but never stops entirely.
+  // Fetch on login and when returning from student view. Do not poll the
+  // instructor dashboard while the student workspace is visible.
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || currentView !== 'instructor') return;
     void refreshDashboardData();
-  }, [authToken, refreshDashboardData]);
+  }, [authToken, currentView, refreshDashboardData]);
 
+  // Submission changes arrive through the selected lobby socket. A slower,
+  // bounded fallback catches missed socket events and updates other lobbies.
+  // The one-second elapsed timer runs locally; it never requires an API call.
+  const dashboardPollMs = hasRecentUnfinishedAnalysis
+    ? (socketConnected ? 30_000 : 15_000)
+    : (socketConnected ? 90_000 : 30_000);
   useEffect(() => {
-    if (!authToken) return;
-    const timer = window.setInterval(
-      () => void refreshDashboardData(), hasRecentUnfinishedAnalysis ? 5_000 : socketConnected ? 60_000 : 10_000,
-    );
+    if (!authToken || currentView !== 'instructor') return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refreshDashboardData();
+    }, dashboardPollMs);
     return () => window.clearInterval(timer);
-  }, [authToken, refreshDashboardData, socketConnected, hasRecentUnfinishedAnalysis]);
+  }, [authToken, currentView, refreshDashboardData, dashboardPollMs]);
 
-  const lobbyIdsKey = lobbies.map((lobby) => lobby.id).join(',');
+  // Refresh once upon returning to the tab, rather than repeatedly fetching
+  // an entire dashboard while the instructor is looking elsewhere.
+  useEffect(() => {
+    if (!authToken || currentView !== 'instructor') return;
+    const onVisibilityChange = () => {
+      if (!document.hidden) void refreshDashboardData();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [authToken, currentView, refreshDashboardData]);
+
+  // Observe only the lobby the instructor is reviewing. Previously one
+  // WebSocket was opened for EVERY historical lobby in the account.
+  const observedLobbyKey = lobbies.some((lobby) => lobby.id === observedLobbyId)
+    ? observedLobbyId : null;
   useEffect(() => {
     setSocketConnected(false);
-    if (!authToken || !lobbyIdsKey) return;
+    if (!authToken || currentView !== 'instructor' || !observedLobbyKey) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefresh = () => {
+      if (document.hidden) return; // Visibility listener will catch up on return.
       if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; void refreshDashboardData(); }, 350);
+      timer = setTimeout(() => { timer = null; void refreshDashboardData(); }, 450);
     };
     const unsubscribe = subscribeToLobbyUpdates(
-      authToken, lobbyIdsKey.split(','), scheduleRefresh, setSocketConnected,
+      authToken, [observedLobbyKey], scheduleRefresh, setSocketConnected,
     );
     return () => {
       if (timer !== null) clearTimeout(timer);
       unsubscribe();
     };
-  }, [authToken, lobbyIdsKey, refreshDashboardData]);
+  }, [authToken, currentView, observedLobbyKey, refreshDashboardData]);
 
   const handleToggleTheme = () => {
     const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';
@@ -160,6 +183,7 @@ export default function App() {
     refreshInFlightRef.current = null;
     refreshQueuedRef.current = false;
     setSocketConnected(false);
+    setObservedLobbyId(null);
     clearAuthSession();
     setInstructor(null);
     setAuthToken(null);
@@ -203,6 +227,14 @@ export default function App() {
     if (!lobby) throw new Error('This lobby is no longer available.');
     const updated = await setLobbyLocked(authToken, lobbyId, lobby.status === 'ACTIVE');
     refreshSequenceRef.current += 1;
+    setLobbies((previous) => previous.map((item) => item.id === lobbyId ? updated : item));
+    setDashboardError(null);
+  };
+
+  const handleExtendAndReopenLobby = async (lobbyId: string, durationMinutes: number) => {
+    if (!authToken) throw new Error('Please sign in again to reopen this lobby.');
+    const updated = await extendRemoteLobby(authToken, lobbyId, durationMinutes);
+    refreshSequenceRef.current += 1; // Do not let an older GET undo this update.
     setLobbies((previous) => previous.map((item) => item.id === lobbyId ? updated : item));
     setDashboardError(null);
   };
@@ -258,9 +290,11 @@ export default function App() {
                 submissions={submissions}
                 onCreateLobby={handleCreateLobby}
                 onToggleLock={handleToggleLock}
+                onExtendAndReopen={handleExtendAndReopenLobby}
                 onDeleteLobby={handleDeleteLobby}
                 onSwitchToStudentView={handleSwitchToStudentView}
                 onRefresh={refreshDashboardData}
+                onActiveLobbyChange={setObservedLobbyId}
                 onLoadSubmissionCode={handleLoadSubmissionCode}
                 errorMessage={dashboardError}
                 theme={theme}

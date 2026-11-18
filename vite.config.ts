@@ -16,7 +16,24 @@ export default defineConfig(() => {
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch: process.env.DISABLE_HMR === 'true' ? null : {
+        // The ML datasets can contain 10,000+ files and are not frontend dependencies.
+        // Keep React HMR active while ignoring non-frontend project trees.
+        ignored: [
+          '**/dataset/**',
+          '**/datasets/**',
+          '**/.feature_cache/**',
+          '**/ml/**',
+          '**/backend/**',
+          '**/tests/**',
+          '**/.venv/**',
+          '**/__pycache__/**',
+          '**/.pytest_cache/**',
+          '**/resources/**',
+          '**/backup_*/**',
+          '**/_premium_ui_recovery_backup_*/**',
+        ],
+      },
       proxy: {
         '/auth': 'http://127.0.0.1:8000',
         '/instructor': 'http://127.0.0.1:8000',

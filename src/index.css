@@ -1,2 +1,6 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @import "./global.css";
+
+/* Scan only the React frontend. Do not scan CodeBERT datasets/caches. */
+@source "./";
+@source "../index.html";

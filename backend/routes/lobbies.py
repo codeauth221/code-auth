@@ -16,6 +16,7 @@ from backend.database import get_db
 from backend.models import Instructor, Lobby, Submission
 from backend.schemas import (
     LobbyCreate,
+    LobbyExtendRequest,
     LobbyDetailResponse,
     LobbyPublicStatus,
     LobbyResponse,
@@ -290,11 +291,58 @@ def unlock_lobby(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This lobby has expired and cannot be reopened.",
+            detail="This lobby has expired. Use Extend & Reopen to set a new duration.",
         )
 
     lobby.status = "ACTIVE"
     db.commit()  # expire_on_commit=False retains the just-written lobby fields.
+
+    return LobbyResponse(
+        id=lobby.id,
+        instructor_id=lobby.instructor_id,
+        subject=lobby.subject,
+        title=lobby.title,
+        language=lobby.language,
+        max_students=lobby.max_students,
+        status=lobby.status,
+        created_at=lobby.created_at,
+        expires_at=lobby.expires_at,
+        shareable_url=_shareable_lobby_url(request, lobby.id),
+    )
+
+
+@router.post("/lobbies/{lobby_id}/extend-and-reopen", response_model=LobbyResponse)
+@router.post("/lobbies/{lobby_id}/extend-reopen", response_model=LobbyResponse, include_in_schema=False)
+def extend_and_reopen_lobby(
+    lobby_id: uuid.UUID,
+    payload: LobbyExtendRequest,
+    request: Request,
+    current_instructor: Instructor = Depends(get_current_instructor),
+    db: Session = Depends(get_db),
+) -> LobbyResponse:
+    """Owner-only, explicit new window for an expired lobby.
+
+    Changes only expires_at and status. Reuses the lobby UUID and preserves all
+    student submissions, CodeBERT results, subject, language and student limit.
+    """
+    lobby = db.query(Lobby).filter(Lobby.id == lobby_id).with_for_update().first()
+    if lobby is None:
+        raise HTTPException(status_code=404, detail="Lobby not found")
+    if lobby.instructor_id != current_instructor.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this lobby.")
+
+    now = datetime.utcnow()
+    if now < lobby.expires_at:
+        raise HTTPException(
+            status_code=409,
+            detail="This lobby has not expired. Use Unlock for a manually locked lobby.",
+        )
+
+    # A fresh period begins now, not at the original (potentially days-old)
+    # expiry. The original session identifier and all student records remain.
+    lobby.expires_at = now + timedelta(minutes=payload.duration_minutes)
+    lobby.status = "ACTIVE"
+    db.commit()
 
     return LobbyResponse(
         id=lobby.id,
@@ -344,15 +392,19 @@ def get_public_lobby_status(
     if not lobby:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lobby not found")
 
-    # If expired, mark LOCKED
-    if lobby.status == "ACTIVE" and datetime.utcnow() >= lobby.expires_at:
+    now = datetime.utcnow()
+    expired = now >= lobby.expires_at
+    # Preserve existing backend enforcement; an expired active lobby is locked.
+    if lobby.status == "ACTIVE" and expired:
         lobby.status = "LOCKED"
         db.commit()
 
-    is_active = lobby.status == "ACTIVE" and datetime.utcnow() < lobby.expires_at
+    is_active = lobby.status == "ACTIVE" and not expired
     return LobbyPublicStatus(
         active=is_active,
         subject=lobby.subject,
         title=lobby.title,
         language=lobby.language,
+        closed_reason=None if is_active else ("expired" if expired else "instructor_locked"),
+        expires_at=lobby.expires_at,
     )

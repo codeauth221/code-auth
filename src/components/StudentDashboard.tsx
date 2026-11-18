@@ -13,6 +13,8 @@ import {
   Fingerprint,
   Files,
   LockKeyhole,
+  CalendarClock,
+  RefreshCw,
   CircleCheck,
   ChevronDown,
   LoaderCircle,
@@ -23,7 +25,7 @@ import { Language, Lobby } from '../types';
 import { ApiRequestError, getPublicLobby, submitLobbyFiles } from '../utils/api';
 import { EXT_TO_LANG } from '../utils/aiDetector';
 import { SAMPLE_CODES } from '../utils/storage';
-import { formatPhilippineTime } from '../utils/dateTime';
+import { formatPhilippineTime, formatPhilippineDateTime, utcTimestamp } from '../utils/dateTime';
 import './StudentDashboardPremium.css';
 
 interface StudentDashboardProps {
@@ -37,10 +39,42 @@ interface StagedFile {
   size: number;
 }
 
+type ClosedReason = 'expired' | 'instructor_locked' | null;
+type PublicLobbyData = Awaited<ReturnType<typeof getPublicLobby>>;
+type StudentLobby = Lobby & { closedReason: ClosedReason };
+
+/** Keep the student view compatible with older backends that lack close details. */
+function toStudentLobby(code: string, lobby: PublicLobbyData): StudentLobby {
+  const now = new Date().toISOString();
+  const deadline = lobby.expires_at ? utcTimestamp(lobby.expires_at) : now;
+  const inferredExpired = lobby.expires_at && Date.parse(deadline) <= Date.now();
+  const closedReason: ClosedReason = lobby.active
+    ? null
+    : lobby.closed_reason || (inferredExpired ? 'expired' : null);
+  return {
+    id: code,
+    code,
+    language: lobby.language,
+    subject: lobby.subject || lobby.title,
+    title: lobby.subject ? lobby.title : '',
+    instructorId: '',
+    instructorEmail: '',
+    maxStudents: 35,
+    durationMinutes: 1,
+    createdAt: now,
+    expiresAt: deadline,
+    status: lobby.active ? 'ACTIVE' : 'LOCKED',
+    maxUploadsPerStudent: 3,
+    closedReason,
+  };
+}
+
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialLobbyCode = '' }) => {
   const [lobbyCode, setLobbyCode] = useState(initialLobbyCode);
-  const [remoteLobby, setRemoteLobby] = useState<Lobby | null>(null);
+  const [remoteLobby, setRemoteLobby] = useState<StudentLobby | null>(null);
   const [lookupPending, setLookupPending] = useState(false);
+  const [recheckPending, setRecheckPending] = useState(false);
+  const [recheckError, setRecheckError] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [studentId, setStudentId] = useState('');
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
@@ -89,22 +123,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialLobby
       try {
         const lobby = await getPublicLobby(code);
         if (cancelled) return;
-        const now = new Date().toISOString();
-        setRemoteLobby({
-          id: code,
-          code,
-          language: lobby.language,
-          subject: lobby.subject || lobby.title,
-          title: lobby.subject ? lobby.title : '',
-          instructorId: '',
-          instructorEmail: '',
-          maxStudents: 35,
-          durationMinutes: 1,
-          createdAt: now,
-          expiresAt: now,
-          status: lobby.active ? 'ACTIVE' : 'LOCKED',
-          maxUploadsPerStudent: 3,
-        });
+        setRemoteLobby(toStudentLobby(code, lobby));
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : 'Unable to check this lobby.';
@@ -124,6 +143,58 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialLobby
       window.clearTimeout(timer);
     };
   }, [lobbyCode]);
+
+  // Instructors may change a lobby's status while a student is on this page.
+  // Check this one public status endpoint, never the full instructor dashboard.
+  useEffect(() => {
+    if (!remoteLobby) return;
+    const checkedCode = remoteLobby.code;
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      if (document.hidden || cancelled) return;
+      try {
+        const updated = await getPublicLobby(checkedCode);
+        if (!cancelled) {
+          setRemoteLobby((current) => current?.code === checkedCode
+            ? toStudentLobby(checkedCode, updated) : current);
+          setRecheckError(null);
+        }
+      } catch {
+        // Remain closed if status cannot be verified; never guess that uploads are open.
+      }
+    }, remoteLobby.status === 'LOCKED' ? 20_000 : 30_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [remoteLobby?.code, remoteLobby?.status]);
+
+  const handleRecheckLobby = async () => {
+    if (!remoteLobby || recheckPending) return;
+    const code = remoteLobby.code;
+    setRecheckPending(true);
+    setRecheckError(null);
+    try {
+      const updated = await getPublicLobby(code);
+      setRemoteLobby((current) => current?.code === code
+        ? toStudentLobby(code, updated) : current);
+    } catch {
+      setRecheckError('Unable to check the session right now. Please check your connection and try again.');
+    } finally {
+      setRecheckPending(false);
+    }
+  };
+
+  const handleDifferentLobby = () => {
+    setRemoteLobby(null);
+    setLobbyCode('');
+    setRecheckError(null);
+    setLookupError(null);
+    setErrorMsg(null);
+    stagedFilesRef.current = [];
+    setStagedFiles([]);
+    // Remove the old share-link query so refreshing doesn't reopen that old lobby.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('lobby');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  };
 
   /** Atomically validate a selected batch instead of racing individual FileReaders. */
   const stageFiles = (incoming: StagedFile[]) => {
@@ -285,6 +356,58 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ initialLobby
       setIsSubmitting(false);
     }
   };
+
+  // A closed session has its own focused experience, rather than an unusable
+  // identity/upload form. Submission enforcement still lives in FastAPI.
+  if (activeLobby?.status === 'LOCKED' && !successReceipt) {
+    const expired = activeLobby.closedReason === 'expired';
+    const manuallyLocked = activeLobby.closedReason === 'instructor_locked';
+    const heading = expired
+      ? 'The submission window has ended.'
+      : manuallyLocked
+        ? 'This exam lobby is locked.'
+        : 'This exam lobby is closed.';
+    const explanation = expired
+      ? 'The deadline for this exam has passed. New files cannot be submitted unless your instructor extends and reopens the session.'
+      : manuallyLocked
+        ? 'Your instructor has temporarily closed submissions for this exam. Only the instructor can unlock or reopen the lobby.'
+        : 'This exam is not currently accepting files. It may be locked or past its deadline. Please contact your instructor for clarification.';
+    const deadlineIsKnown = Boolean(activeLobby.closedReason && activeLobby.expiresAt);
+    return (
+      <main className="ca-student-workspace ca-student-workspace--closed ca-fade-up">
+        <section className="ca-student-closed-panel" aria-labelledby="ca-closed-heading" role="status">
+          <div className="ca-student-closed-shine" aria-hidden="true" />
+          <div className="ca-student-closed-icon"><LockKeyhole size={36} strokeWidth={1.65}/></div>
+          <div className="ca-student-closed-label">CODEAUTHENTIC / SESSION UNAVAILABLE</div>
+          <span className="ca-student-closed-pill"><span aria-hidden="true" /> {expired ? 'Deadline expired' : manuallyLocked ? 'Locked by instructor' : 'Submissions closed'}</span>
+          <h1 id="ca-closed-heading">{heading}</h1>
+          <p className="ca-student-closed-description">{explanation}</p>
+
+          <div className="ca-student-closed-info">
+            <div><span>EXAM SESSION</span><strong>{activeLobby.subject}</strong><small>{activeLobby.title || 'Examination'}</small></div>
+            {deadlineIsKnown && <div><span><CalendarClock size={14}/> SUBMISSION DEADLINE</span><strong>{formatPhilippineDateTime(activeLobby.expiresAt)}</strong><small>Philippine Time (PHT)</small></div>}
+          </div>
+
+          <div className="ca-student-closed-guidance">
+            <ShieldCheck size={21} aria-hidden="true" />
+            <div><strong>Need more time to submit?</strong><p>{expired
+              ? 'Contact your instructor and ask them to use Extend & Reopen. Your existing lobby code will remain the same.'
+              : 'Contact your instructor to request reopening or a deadline extension. Only an instructor can change the session status.'}</p></div>
+          </div>
+
+          <div className="ca-student-closed-actions">
+            <button type="button" className="ca-student-closed-check" onClick={() => void handleRecheckLobby()} disabled={recheckPending}>
+              <RefreshCw size={17} className={recheckPending ? 'ca-student-spinner' : ''}/>
+              {recheckPending ? 'Checking session…' : 'Check session again'}
+            </button>
+            <button type="button" className="ca-student-closed-other" onClick={handleDifferentLobby}><KeyRound size={17}/> Use another lobby code</button>
+          </div>
+          {recheckError && <p className="ca-student-closed-error" role="alert">{recheckError}</p>}
+          <p className="ca-student-closed-refresh"><CircleCheck size={14}/> Checking for instructor updates every 20 seconds while this page is open.</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="ca-student-workspace ca-fade-up">

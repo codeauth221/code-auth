@@ -1,65 +1,62 @@
-# CodeAuthentic — Real Analysis Timer (safe patch)
+# CodeAuthentic — Student Closed / Expired Lobby UI
 
-## Features
+This focused patch replaces the disabled student-upload form with a premium, full-width **closed-session panel** when a valid lobby is not accepting submissions. It preserves the student receipt, theme, and working upload form whenever the lobby is open.
 
-- While a student file is **pending**, shows `Queued · 12s`.
-- While the backend is **analyzing**, shows a live ticker such as `Analyzing · 42s` in the instructor dashboard banner, desktop table, and mobile cards. Updates each second without making a new API call every second.
-- When **done**, shows `Worked for 50s` from **backend-recorded start and finish timestamps**. The duration remains after refresh or on another instructor device.
-- If a normally handled analysis fails, shows `Stopped after 50s` (no fake prediction).
-- Existing historical submissions remain as-is and intentionally show **no duration**, because past timing data was never recorded. Stale-recovered jobs do not invent an end time.
+## What changes
 
-**Duration definition:** From the backend's transition into `analyzing` to its transition into `done` or a normally handled `failed` state. Includes any waiting inside the inference lock, CodeBERT model loading, analysis, and backend processing. Does not include file upload validation or dashboard polling delay. The timer therefore measures the end-to-end analysis job, **not only PyTorch model execution**. Queued time before the job is claimed is shown separately.
+- Backend `GET /public/lobbies/{lobby_id}/status` now returns two additional fields: `closed_reason` (`expired` or `instructor_locked`) and UTC `expires_at`. The original `active`, `subject`, `title`, `language` fields remain unchanged. No private instructor information, source code, or analysis scores are exposed.
+- Expired lobby: "The submission window has ended" with deadline in Philippine Time and a suggestion to contact the instructor to **Extend & Reopen**.
+- Instructor-locked lobby: "This exam lobby is locked" and an explanation that only the instructor can unlock it.
+- If the status reason is unavailable, the UI uses a neutral "closed" explanation rather than guessing.
+- The submission form is **not shown** while closed; an on-screen check and automatic rechecks can detect reopening. A second button lets students enter a different lobby code.
+- The existing backend authorization, expiration restrictions, three-file limit, and model processing are unmodified. No message is sent to the instructor; the guidance is informational.
 
-## Files changed
+## Files (same relative paths as the project)
 
-- `backend/models.py`
-- `backend/database.py`
+- `backend/routes/lobbies.py`
 - `backend/schemas.py`
-- `backend/analysis.py`
-- `backend/routes/dashboard.py`
-- `src/types.ts`
 - `src/utils/api.ts`
-- `src/components/InstructorDashboard.tsx`
-- Adds `tests/test_analysis_timing.py`.
+- `src/components/StudentDashboard.tsx`
+- `src/components/StudentDashboardPremium.css`
+- `tests/test_public_lobby_closed_status.py` (new; in-memory database tests)
 
-**Not touched:** `ml/predictor.py`, Python/Java/C classifier files, trained heads, UI theme/CSS, project launcher, existing scores, authentication. No external timer service.
+## Installation
 
-## Before installation
+1. Back up the CodeAuthentic project. **Stop the backend and frontend terminal windows.**
+2. Extract this ZIP **outside** your project folder; open PowerShell in the extracted directory.
+3. Run:
 
-1. **Back up your current code AND your PostgreSQL/Supabase database** (especially if local and Render share the same database). On backend startup this patch executes additive `ALTER TABLE submissions ADD COLUMN` for two nullable timestamp columns. It doesn't delete or rewrite existing rows; this schema change is shared by every service using that DB. Database changes are not rolled back automatically by the file installer.
-2. Close the local FastAPI and Vite terminal windows after any current analyses complete.
-3. Extract this ZIP in a separate directory. Do not extract over your running project.
-4. Open PowerShell in the extracted patch directory.
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\APPLY_STUDENT_CLOSED_LOBBY.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
+   ```
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\APPLY_ANALYSIS_TIMER_PATCH.ps1 -ProjectRoot "C:\Users\REO JOHN\Downloads\thesis-main\thesis-main"
-```
+   It checks the original SHA-256 versions before changing any file. It creates backups in `%LOCALAPPDATA%\CodeAuthenticPatchBackups\student_closed_*`. If it says SOURCE MISMATCH, **do not overwrite manually**; send the output with a fresh source ZIP. The installer is safe to run again if everything already matches the new files.
 
-The installer checks hashes of **all eight** source files against `CodeAuthentic_Latest_Source_Inspection.zip` provided Nov 18, 2026, before replacing anything. Backups are stored under `%LOCALAPPDATA%\CodeAuthenticPatchBackups`. If you get `SOURCE MISMATCH`, **stop**: don't force overwrite. Send the latest changed file or ZIP so we can merge it safely.
+4. From the project root with `.venv` activated:
 
-## Verify
+   ```powershell
+   python -m compileall -q backend
+   python -m pytest tests\test_public_lobby_closed_status.py -q
+   npm run build
+   ```
 
-From project root with virtual environment active:
+   If `pytest` is not installed in `.venv`, you can skip its optional local test and use the startup verification below. Do not install it unnecessarily if other tests already use `unittest`.
 
-```powershell
-python -m compileall -q backend
-$env:PYTHONPATH = (Get-Location).Path
-python .\tests\test_analysis_regression.py
-python .\tests\test_analysis_timing.py
-npm run lint
-npm run build
-```
+5. Double-click `START_SYSTEM.bat` after closing both old server windows.
+6. Verify that the **running** backend was updated:
 
-If `npm run lint` reports errors **only** in old Navbar backup folders, that's the pre-existing TypeScript scanning issue, not a timer error. Don't delete those backups without checking. The complete frontend Vite build was **not available** in our test environment; run both commands on your Windows machine.
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\VERIFY_STUDENT_LOBBY_STATUS.ps1
+   ```
 
-Restart by double-clicking `START_SYSTEM.bat` (keep your existing `CODEAUTHENTIC_MASK_BATCH_SIZE=1` and `CODEAUTHENTIC_MODEL_DEVICE=cpu` settings). Watch terminal for `[SCHEMA] Added optional ...` and `[INFO] Database tables verified/created successfully.`
+   Run it from the extracted ZIP directory. It should print `[READY]`.
+7. Test a previously expired lobby through its existing student link. You should see the focused closed-session panel, **not** the upload form. After the instructor uses Extend & Reopen, click **Check session again** (or wait for the 20-second status check). The form returns without needing a new code. For an unexpired manually locked lobby, confirm the different text.
 
-Create a NEW submission in a C / Java / Python lobby and observe elapsed timer while running. It should show `Worked for XXs` once completed, even after reloading the instructor dashboard. Existing finished files will not acquire fabricated durations.
+## Compatibility and behavior
 
-## Safety
-
-- Live-model tests were not executed in the patch environment; old regression tests and timing tests use isolated SQLite and stub predictors.
-- This patch has no influence on the confirmed 512MB Render Free CodeBERT limitation; Render will still reject heavyweight inference safely after the memory patch.
-- This patch does NOT add an ETA or fake progress percent; it only displays elapsed measured time.
-- It does not retry or modify historical submissions.
-- For rollback, restore backed-up source files. The added nullable database columns can be left in place safely; don't drop them to roll back source code.
+- Current public status calls remain backward-compatible. The student frontend gracefully handles older server responses that lack the new fields, but it cannot reliably distinguish expiry from manual lock without the updated backend.
+- The status is refreshed every 20 seconds while closed and every 30 seconds while open, only while the page is visible. No full dashboard polling is added.
+- Students are never allowed to bypass server-side expiration/lock enforcement.
+- Existing student receipts and stored submissions are not modified.
+- The TSX source was syntax-checked, and backend regression tests were run. Run the complete frontend production build locally before deploying.
+- No database migrations, CodeBERT changes, or classifier retraining are required.
